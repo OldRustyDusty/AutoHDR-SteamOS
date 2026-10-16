@@ -2,8 +2,9 @@
 //
 // HDR Ket quick access panel.
 //
-// The panel works on one game at a time: the game that is running, or else
-// the game whose library page is open. It turns HDR Ket on for that game
+// The panel works on one game at a time: the game picked in its Game list, or
+// else the game that is running, or the game whose library page is open. It
+// turns HDR Ket on for that game
 // through its launch options, and edits the game's profile: live through the
 // running layer, or in the profile file when the game isn't running. Every
 // change is saved automatically.
@@ -24,9 +25,10 @@ import {
   showModal,
   staticClasses,
 } from "@decky/ui";
-import { callable, definePlugin } from "@decky/api";
+import { callable, definePlugin, toaster } from "@decky/api";
 import { useEffect, useRef, useState } from "react";
 import { MdHdrOn } from "react-icons/md";
+import qrcode from "qrcode-generator";
 
 import { addHdrKet, hasHdrKet, removeHdrKet } from "./launchOptions";
 
@@ -86,7 +88,17 @@ interface Game {
 interface Overview {
   layer: { state: "installed" | "developer" | "missing"; path: string };
   display: Display;
+  phone: { url: string; live: boolean };
   game: Game | null;
+}
+
+interface GameEntry {
+  appid: number;
+  name: string;
+}
+
+interface PluginSettings {
+  notify_phone: boolean;
 }
 
 type Value = number | string | boolean;
@@ -95,6 +107,9 @@ const getOverview = callable<[appid: number], Overview>("get_overview");
 const setSettings = callable<[appid: number, changes: Record<string, Value>], Overview>("set_settings");
 const resetGame = callable<[appid: number], Overview>("reset_game");
 const setDefaultPeak = callable<[nits: number, appid: number], Overview>("set_default_peak");
+const listGames = callable<[], GameEntry[]>("list_games");
+const getPluginSettings = callable<[], PluginSettings>("get_plugin_settings");
+const setPluginSetting = callable<[key: string, value: Value], PluginSettings>("set_plugin_setting");
 
 // ---------------------------------------------------------------------------
 // Steam client
@@ -105,7 +120,43 @@ interface Target {
   running: boolean;
 }
 
+function appName(appid: number): string {
+  try {
+    return (window as any).appStore?.GetAppOverviewByAppID?.(appid)?.display_name ?? `App ${appid}`;
+  } catch {
+    return `App ${appid}`;
+  }
+}
+
+// Steam's app types: game 1, application 2, tool 4, demo 8. Tools (Proton,
+// runtimes) are not worth listing. Unknown types are kept.
+function isGame(appid: number): boolean {
+  try {
+    const type = (window as any).appStore?.GetAppOverviewByAppID?.(appid)?.app_type;
+    return typeof type !== "number" || (type & (1 | 2 | 8)) !== 0;
+  } catch {
+    return true;
+  }
+}
+
+function runningAppId(): number {
+  const running = Router.MainRunningApp;
+  return running?.appid ? Number(running.appid) : 0;
+}
+
+// A game picked from the list sticks until a game starts or stops.
+let picked: { appid: number; whileRunning: number } | null = null;
+
 function currentTarget(): Target | null {
+  const runningId = runningAppId();
+  if (picked && picked.whileRunning === runningId) {
+    return { appid: picked.appid, name: appName(picked.appid), running: picked.appid === runningId };
+  }
+  picked = null;
+  return automaticTarget();
+}
+
+function automaticTarget(): Target | null {
   const running = Router.MainRunningApp;
   if (running?.appid) {
     return { appid: Number(running.appid), name: running.display_name, running: true };
@@ -116,8 +167,7 @@ function currentTarget(): Target | null {
     const match = path?.match(/\/library\/app\/(\d+)/);
     if (match) {
       const appid = Number(match[1]);
-      const name = (window as any).appStore?.GetAppOverviewByAppID?.(appid)?.display_name ?? `App ${appid}`;
-      return { appid, name, running: false };
+      return { appid, name: appName(appid), running: false };
     }
   } catch {
     // Steam internals moved; the running game still works.
@@ -148,6 +198,97 @@ function getLaunchOptions(appid: number): Promise<string> {
 
 function setLaunchOptions(appid: number, options: string) {
   (window as any).SteamClient?.Apps?.SetAppLaunchOptions?.(appid, options);
+}
+
+// ---------------------------------------------------------------------------
+// Phone address as a QR code
+
+function QrCode(props: { text: string; size: number }) {
+  const qr = qrcode(0, "M");
+  qr.addData(props.text);
+  qr.make();
+  const count = qr.getModuleCount();
+  const margin = 2;
+  let path = "";
+  for (let r = 0; r < count; r++)
+    for (let c = 0; c < count; c++) if (qr.isDark(r, c)) path += `M${c + margin},${r + margin}h1v1h-1z`;
+  const total = count + margin * 2;
+  return (
+    <svg width={props.size} height={props.size} viewBox={`0 0 ${total} ${total}`} shapeRendering="crispEdges">
+      <rect width={total} height={total} fill="#fff" />
+      <path d={path} fill="#000" />
+    </svg>
+  );
+}
+
+function PhoneModal(props: { url: string; live: boolean; closeModal?: () => void }) {
+  return (
+    <ModalRoot onCancel={props.closeModal} closeModal={props.closeModal}>
+      <div className={staticClasses.Title} style={{ marginBottom: 8 }}>
+        Tune from your phone
+      </div>
+      <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+        <QrCode text={props.url} size={220} />
+        <div>
+          <p>
+            Scan this with your phone's camera, or open <b>{props.url}</b> in its browser. The phone has to be on
+            the same network.
+          </p>
+          <p style={{ opacity: 0.8 }}>
+            {props.live
+              ? "A game with HDR Ket is running, so the page is up now."
+              : "The page opens while a game with HDR Ket on is running."}
+          </p>
+        </div>
+      </div>
+    </ModalRoot>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Turning HDR Ket on or off for many games at once
+
+function GamesModal(props: { games: GameEntry[]; closeModal?: () => void }) {
+  const [enabled, setEnabled] = useState<Record<number, boolean>>({});
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      for (const g of props.games) {
+        const on = hasHdrKet(await getLaunchOptions(g.appid));
+        if (!alive) return;
+        setEnabled((old) => ({ ...old, [g.appid]: on }));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const toggle = async (appid: number, on: boolean) => {
+    const options = await getLaunchOptions(appid);
+    setLaunchOptions(appid, on ? addHdrKet(options) : removeHdrKet(options));
+    setEnabled((old) => ({ ...old, [appid]: on }));
+  };
+  return (
+    <ModalRoot onCancel={props.closeModal} closeModal={props.closeModal}>
+      <div className={staticClasses.Title} style={{ marginBottom: 4 }}>
+        HDR Ket per game
+      </div>
+      <p style={{ opacity: 0.8, marginTop: 0 }}>
+        Switching a game on adds ENABLE_HDRKET=1 to its launch options. A running game picks the change up when it
+        restarts.
+      </p>
+      {props.games.map((g) => (
+        <ToggleField
+          key={g.appid}
+          label={g.name}
+          checked={!!enabled[g.appid]}
+          disabled={enabled[g.appid] === undefined}
+          onChange={(on) => toggle(g.appid, on)}
+        />
+      ))}
+      {props.games.length === 0 && <p>No installed Steam games found.</p>}
+    </ModalRoot>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +370,8 @@ function Content() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [advanced, setAdvanced] = useState(false);
+  const [games, setGames] = useState<GameEntry[]>([]);
+  const [pluginSettings, setPluginSettingsState] = useState<PluginSettings | null>(null);
   // Values being edited win over what the backend last reported, so a slider
   // doesn't jump back while it is being dragged.
   const pending = useRef<Record<string, { value: Value; at: number }>>({});
@@ -255,6 +398,11 @@ function Content() {
       alive = false;
       clearInterval(id);
     };
+  }, []);
+
+  useEffect(() => {
+    listGames().then((list) => setGames(list.filter((g) => isGame(g.appid))));
+    getPluginSettings().then(setPluginSettingsState);
   }, []);
 
   useEffect(() => {
@@ -307,7 +455,8 @@ function Content() {
       const batch = queued.current;
       queued.current = {};
       try {
-        setOverview(await setSettings(appid, batch));
+        // The name lets the phone page label non-Steam shortcuts too.
+        setOverview(await setSettings(appid, { ...batch, game_name: target?.name ?? "" }));
       } catch (e) {
         console.error("HDR Ket: update failed", e);
       }
@@ -337,6 +486,18 @@ function Content() {
     return "Off for this game.";
   })();
 
+  const runningId = runningAppId();
+  const gameOptions = [
+    ...(runningId && !games.some((g) => g.appid === runningId) ? [{ appid: runningId, name: appName(runningId) }] : []),
+    ...games,
+  ].map((g) => ({ data: g.appid, label: g.appid === runningId ? `▶ ${g.name}` : g.name }));
+  const pickGame = (id: number) => {
+    picked = { appid: id, whileRunning: runningId };
+    setTarget(currentTarget());
+    setOverview((o) => (o ? { ...o, game: null } : o));
+    getOverview(id).then(setOverview);
+  };
+
   const compare = game?.live ? (value("bypass") ? "sdr" : (value("split") ?? 0) > 0 ? "split" : "hdr") : "hdr";
   const showControls = !!game && (enabled || game.live || game.has_profile);
 
@@ -349,6 +510,23 @@ function Content() {
           </PanelSectionRow>
         </PanelSection>
       )}
+
+      <PanelSection title="Game">
+        <PanelSectionRow>
+          <DropdownItem
+            label="Profile for"
+            rgOptions={gameOptions}
+            selectedOption={target?.appid}
+            strDefaultLabel="Choose a game"
+            onChange={(o) => pickGame(o.data)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => showModal(<GamesModal games={games} />)}>
+            Turn on or off for games…
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
 
       {target && game ? (
         <PanelSection title={target.name}>
@@ -575,12 +753,42 @@ function Content() {
           )}
         </PanelSection>
       ) : (
-        <PanelSection title="Game">
+        <PanelSection>
           <PanelSectionRow>
-            <Field description="Open a game's page in your library, or start a game, to turn HDR Ket on for it and tune its profile." />
+            <Field description="Pick a game above, open a game's library page, or start a game to tune its profile." />
           </PanelSectionRow>
         </PanelSection>
       )}
+
+      <PanelSection title="Phone">
+        <PanelSectionRow>
+          <Field
+            label={overview.phone.url}
+            description={
+              overview.phone.live
+                ? "Open this on your phone to tune the running game."
+                : "Opens while a game with HDR Ket on is running."
+            }
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={() => showModal(<PhoneModal url={overview.phone.url} live={overview.phone.live} />)}
+          >
+            Show QR code
+          </ButtonItem>
+        </PanelSectionRow>
+        {pluginSettings && (
+          <PanelSectionRow>
+            <ToggleField
+              label="Show the address when a game starts"
+              checked={pluginSettings.notify_phone}
+              onChange={async (on) => setPluginSettingsState(await setPluginSetting("notify_phone", on))}
+            />
+          </PanelSectionRow>
+        )}
+      </PanelSection>
 
       <PanelSection title="Display">
         <PanelSectionRow>
@@ -608,9 +816,42 @@ function Content() {
   );
 }
 
-export default definePlugin(() => ({
-  name: "HDR Ket",
-  titleView: <div className={staticClasses.Title}>HDR Ket</div>,
-  content: <Content />,
-  icon: <MdHdrOn />,
-}));
+// When a game with HDR Ket starts, say where the phone page is. Checks for
+// two minutes after a game starts (the page comes up with the game's first
+// HDR frame), then stays quiet until the next game.
+function watchForGames(): () => void {
+  let running = 0;
+  let startedAt = 0;
+  let done = true;
+  const id = setInterval(async () => {
+    const now = runningAppId();
+    if (now !== running) {
+      running = now;
+      startedAt = Date.now();
+      done = !now;
+    }
+    if (done || Date.now() - startedAt > 120_000) return;
+    try {
+      const overview = await getOverview(now);
+      if (!overview.game?.live || runningAppId() !== now) return;
+      done = true;
+      if ((await getPluginSettings()).notify_phone) {
+        toaster.toast({ title: "HDR Ket is on", body: `Tune from your phone: ${overview.game.url}` });
+      }
+    } catch (e) {
+      console.error("HDR Ket: game watch failed", e);
+    }
+  }, 3000);
+  return () => clearInterval(id);
+}
+
+export default definePlugin(() => {
+  const stopWatching = watchForGames();
+  return {
+    name: "HDR Ket",
+    titleView: <div className={staticClasses.Title}>HDR Ket</div>,
+    content: <Content />,
+    icon: <MdHdrOn />,
+    onDismount: stopWatching,
+  };
+});

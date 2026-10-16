@@ -208,7 +208,8 @@ function greyHint(grey) {
 
 function applyState(s) {
   state = s;
-  $('game').textContent = s.game;
+  $('game').textContent = s.name || s.game;
+  document.title = `HDR Ket · ${s.name || s.game}`;
   if (s.version !== lastVersion) {
     lastVersion = s.version;
     for (const k of Object.keys(sliders)) {

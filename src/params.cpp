@@ -37,6 +37,8 @@ std::atomic<float>    g_displayPeak{1000.0f}; // this display's base peak (EDID 
 // Autosave: the version of the last user edit, and when it happened.
 std::atomic<uint64_t> g_dirtyVersion{0};
 std::atomic<int64_t>  g_lastEditNs{0};
+std::string           g_presetName; // game_name from the preset (guarded by g_lock)
+std::string           g_vulkanName; // VkApplicationInfo::pApplicationName (guarded by g_lock)
 
 const char* eotfName(Eotf e)
 {
@@ -222,6 +224,14 @@ bool applyKey(Settings& s, const std::string& key, const std::string& value)
     if (key == "gamut_expansion") return num(&s.gamutExpansion);
     if (key == "adapt_release") return num(&s.adaptRelease);
     if (key == "adapt_strength") return num(&s.adaptStrength);
+    if (key == "game_name") {
+        // Names the game for the UI (non-Steam shortcuts); not a picture setting.
+        if (!value.empty()) {
+            std::lock_guard l(g_lock);
+            g_presetName = value;
+        }
+        return true;
+    }
     if (key == "shoulder_start") return num(&s.shoulderStart);
     if (key == "shoulder_pow") return num(&s.shoulderPow);
     if (key == "split") return num(&s.split);
@@ -324,6 +334,70 @@ static void autosaveLoop()
         else
             HK_WARN("autosave failed for %s", gameKey().c_str());
     }
+}
+
+// Reads `"name"` from steamapps/appmanifest_<appid>.acf. The game's own
+// library comes first: Proton games get STEAM_COMPAT_INSTALL_PATH
+// (<library>/steamapps/common/<game>); then the main library and the others
+// listed in its libraryfolders.vdf.
+static std::string steamLibraryName(uint32_t appid)
+{
+    std::vector<std::string> steamapps;
+    if (const char* install = std::getenv("STEAM_COMPAT_INSTALL_PATH"); install && *install)
+        steamapps.push_back(std::filesystem::path(install).parent_path().parent_path().string());
+    const char* home = std::getenv("HOME");
+    for (const char* root : {"/.local/share/Steam/steamapps", "/.steam/steam/steamapps"}) {
+        std::string dir = std::string(home ? home : "") + root;
+        steamapps.push_back(dir);
+        std::istringstream vdf(readFile(dir + "/libraryfolders.vdf"));
+        std::string        line;
+        while (std::getline(vdf, line)) {
+            size_t key = line.find("\"path\"");
+            if (key == std::string::npos)
+                continue;
+            size_t open = line.find('"', key + 6), close = line.rfind('"');
+            if (open != std::string::npos && close > open)
+                steamapps.push_back(line.substr(open + 1, close - open - 1) + "/steamapps");
+        }
+    }
+    for (auto& dir : steamapps) {
+        std::istringstream acf(readFile(dir + "/appmanifest_" + std::to_string(appid) + ".acf"));
+        std::string        line;
+        while (std::getline(acf, line)) {
+            size_t key = line.find("\"name\"");
+            if (key == std::string::npos)
+                continue;
+            size_t open = line.find('"', key + 6), close = line.rfind('"');
+            if (open != std::string::npos && close > open)
+                return line.substr(open + 1, close - open - 1);
+        }
+    }
+    return "";
+}
+
+std::string gameName()
+{
+    static const std::string library = steamAppId() ? steamLibraryName(steamAppId()) : "";
+    if (!library.empty())
+        return library;
+    std::lock_guard l(g_lock);
+    if (!g_presetName.empty())
+        return g_presetName;
+    if (!g_vulkanName.empty())
+        return g_vulkanName;
+    return gameKey();
+}
+
+void noteApplicationName(const char* name)
+{
+    if (!name || !*name)
+        return;
+    std::string n = name;
+    if (n.size() > 4 && strcasecmp(n.c_str() + n.size() - 4, ".exe") == 0)
+        n.resize(n.size() - 4);
+    std::lock_guard l(g_lock);
+    if (g_vulkanName.empty())
+        g_vulkanName = n;
 }
 
 uint32_t steamAppId()
@@ -547,6 +621,7 @@ bool savePreset(std::string* pathOut)
         if (!out)
             return false;
         out << "# HDR Ket preset for " << gameKey() << "\n"
+            << "game_name = \"" << gameName() << "\"\n"
             << "# Peak brightness comes from ../displays/ unless overridden per display below\n"
             << "middle_grey_nits = " << s.greyNits << "\n"
             << "expansion = " << s.expansion << "\n"

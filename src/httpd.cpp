@@ -58,6 +58,7 @@ std::string stateJson()
 
     std::string j = "{";
     j += "\"game\":\"" + jsonEscape(gameKey()) + "\",";
+    j += "\"name\":\"" + jsonEscape(gameName()) + "\",";
     j += "\"appid\":" + std::to_string(steamAppId()) + ",";
     j += std::string("\"layer_version\":\"") + HDRKET_VERSION + "\",";
     j += "\"version\":" + std::to_string(settingsVersion()) + ",";

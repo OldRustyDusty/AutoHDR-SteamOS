@@ -54,7 +54,12 @@ DEFAULTS = {
     "shoulder_pow": 2.5,
 }
 DEFAULT_PEAK = 1000.0
-STRING_KEYS = {"eotf", "tonemap"}
+STRING_KEYS = {"eotf", "tonemap", "game_name"}
+DEFAULT_PORT = PORTS[0]
+PLUGIN_SETTINGS = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
+PLUGIN_DEFAULTS = {"notify_phone": True}
+# Installed "apps" that are really Steam's own tools.
+TOOL_NAMES = re.compile(r"^(Proton|Steam Linux Runtime|Steamworks Common|SteamVR)", re.I)
 # Comparison aids only make sense live; they are never saved.
 LIVE_ONLY_KEYS = {"split", "pattern", "bypass"}
 
@@ -185,7 +190,9 @@ def read_profile(appid: int, display: dict) -> dict:
     mine = "peak_nits@" + display["key"]
     any_display = None
     for key, value in _read_kv(preset_path(appid)):
-        if key == mine:
+        if key == "game_name":
+            settings["game_name"] = value
+        elif key == mine:
             settings["peak_nits"] = float(value)
             settings["peak_override"] = True
         elif key == "peak_nits":
@@ -205,8 +212,11 @@ def write_profile(appid: int, display: dict, settings: dict, reset: bool = False
     mine = "peak_nits@" + display["key"]
     others = [(k, v) for k, v in _read_kv(preset_path(appid))
               if k.startswith("peak_nits@") and k != mine]
+    name = settings.get("game_name") or next((v for k, v in _read_kv(preset_path(appid)) if k == "game_name"), "")
     lines = [f"# HDR Ket preset for steam-{appid}",
              "# Peak brightness comes from ../displays/ unless overridden per display below"]
+    if name:
+        lines.append(f'game_name = "{name}"')
     if not reset:
         lines += [f"{k} = {_format_value(k, settings[k])}" for k in DEFAULTS]
     lines += [f"{k} = {v}" for k, v in others]
@@ -245,6 +255,41 @@ def lan_address() -> str:
             return s.getsockname()[0]
     except OSError:
         return "localhost"
+
+
+# ---------------------------------------------------------------------------
+# Installed Steam games (appmanifest_<appid>.acf in every library)
+
+
+def _vdf_values(text: str, key: str) -> list:
+    return re.findall(r'^\s*"' + key + r'"\s+"([^"]*)"', text, re.M)
+
+
+def installed_games() -> list:
+    steam = os.path.join(HOME, ".local", "share", "Steam", "steamapps")
+    libraries = [steam] + [os.path.join(p, "steamapps")
+                           for p in _vdf_values(_read(os.path.join(steam, "libraryfolders.vdf")), "path")]
+    games = {}
+    for lib in dict.fromkeys(os.path.realpath(p) for p in libraries):
+        try:
+            names = os.listdir(lib)
+        except OSError:
+            continue
+        for f in names:
+            if not (f.startswith("appmanifest_") and f.endswith(".acf")):
+                continue
+            text = _read(os.path.join(lib, f))
+            appid, name = _vdf_values(text, "appid"), _vdf_values(text, "name")
+            if appid and name and not TOOL_NAMES.match(name[0]):
+                games[int(appid[0])] = name[0]
+    return sorted(({"appid": a, "name": n} for a, n in games.items()), key=lambda g: g["name"].lower())
+
+
+def plugin_settings() -> dict:
+    try:
+        return {**PLUGIN_DEFAULTS, **json.loads(_read(PLUGIN_SETTINGS) or "{}")}
+    except ValueError:
+        return dict(PLUGIN_DEFAULTS)
 
 
 # ---------------------------------------------------------------------------
@@ -317,14 +362,17 @@ class Plugin:
     def _overview(self, appid: int) -> dict:
         display = detect_display()
         default_peak, configured = display_default_peak(display)
+        instances = find_instances()
+        port = next((p for p, s in instances if s.get("appid") == appid), instances[0][0] if instances else DEFAULT_PORT)
         result = {
             "layer": layer_status(),
             "display": {**display, "default_peak": default_peak, "configured": configured},
+            "phone": {"url": f"http://{lan_address()}:{port}", "live": bool(instances)},
             "game": None,
         }
         if not appid:
             return result
-        live = next(((p, s) for p, s in find_instances() if s.get("appid") == appid), None)
+        live = next(((p, s) for p, s in instances if s.get("appid") == appid), None)
         if live:
             port, state = live
             result["game"] = {"appid": appid, "live": True, "port": port,
@@ -336,6 +384,19 @@ class Plugin:
                               "has_profile": os.path.exists(preset_path(appid)),
                               "settings": read_profile(appid, display)}
         return result
+
+    async def list_games(self) -> list:
+        return await asyncio.to_thread(installed_games)
+
+    async def get_plugin_settings(self) -> dict:
+        return plugin_settings()
+
+    async def set_plugin_setting(self, key: str, value) -> dict:
+        settings = plugin_settings()
+        if key in PLUGIN_DEFAULTS:
+            settings[key] = value
+            _write_atomic(PLUGIN_SETTINGS, json.dumps(settings, indent=2))
+        return settings
 
     async def set_settings(self, appid: int, changes: dict) -> dict:
         return await asyncio.to_thread(self._set_settings, int(appid), changes)
@@ -354,7 +415,7 @@ class Plugin:
                     continue
                 if key == "peak_override" and not value:
                     settings["peak_nits"] = display_default_peak(display)[0]
-                if key in settings:
+                if key in settings or key == "game_name":
                     settings[key] = value
             write_profile(appid, display, settings)
         return self._overview(appid)

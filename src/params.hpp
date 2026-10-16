@@ -94,6 +94,12 @@ const std::string& gameKey();
 bool               savePreset(std::string* pathOut);
 uint32_t           steamAppId(); // 0 outside Steam; non-Steam shortcuts give their shortcut id
 
+// What to call the game in the UI: its Steam library name, else the name the
+// plugin saved in the preset (non-Steam shortcuts), else the name the game
+// gave Vulkan, else the preset key.
+std::string gameName();
+void        noteApplicationName(const char* name); // from VkApplicationInfo
+
 // The display's own peak (its profile, else EDID, else the default), used by
 // every game without a peak override. Setting it saves the display profile.
 float displayDefaultPeak();

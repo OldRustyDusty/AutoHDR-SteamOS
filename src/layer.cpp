@@ -6,6 +6,7 @@
 
 #include "hdrket.hpp"
 #include "log.hpp"
+#include "params.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -101,6 +102,7 @@ static VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo* pCreateInf
                              ? pCreateInfo->pApplicationInfo->pEngineName
                              : "?";
     HK_INFO("v%s loaded (app \"%s\", engine \"%s\")", HDRKET_VERSION, app, engine);
+    noteApplicationName(pCreateInfo->pApplicationInfo ? pCreateInfo->pApplicationInfo->pApplicationName : nullptr);
 
     std::lock_guard l(globals().lock);
     globals().instances[dispatchKey(*pInstance)] = std::move(data);
