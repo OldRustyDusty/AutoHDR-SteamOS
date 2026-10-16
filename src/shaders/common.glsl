@@ -31,13 +31,22 @@ layout(push_constant) uniform Params {
     uint  tonemap;
     float gamutExpansion;
     float sourcePeakNits;
-    float pad;
+    float sceneWhite;   // adaptive: SDR luminance treated as this scene's white (1 = static)
+    float shadowGamma;  // adaptive: < 1 lifts shadows below middle grey (1 = static)
+    float pad0;
+    float pad1;
+    float pad2;
 } p;
 
 // Must match kHistogram* in params.hpp.
 #define HIST_BINS     64
 #define HIST_MIN_LOG2 -2.0
 #define HIST_MAX_LOG2 14.0
+
+// Scene histogram of the game's own SDR luminance (0..1), for adaptation.
+// Must match kScene* in params.hpp.
+#define SCENE_BINS     32
+#define SCENE_MIN_LOG2 -12.0
 
 const float SCRGB_REFERENCE_NITS = 80.0;  // scRGB 1.0
 const float PQ_MAX_NITS          = 10000.0;

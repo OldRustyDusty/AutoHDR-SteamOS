@@ -82,6 +82,7 @@ Settings clamped(Settings s)
     s.expansion     = std::clamp(s.expansion, 0.0f, 1.5f);
     s.gamutExpansion = std::clamp(s.gamutExpansion, 0.0f, 1.0f);
     s.adaptRelease  = std::clamp(s.adaptRelease, 0.1f, 10.0f);
+    s.adaptStrength = std::clamp(s.adaptStrength, 0.0f, 1.0f);
     s.saturation    = std::clamp(s.saturation, 0.0f, 2.0f);
     s.blackFloor    = std::clamp(s.blackFloor, 0.0f, 0.2f);
     s.shoulderStart = std::clamp(s.shoulderStart, 0.0f, 0.95f);
@@ -215,6 +216,7 @@ bool applyKey(Settings& s, const std::string& key, const std::string& value)
     if (key == "tonemap") return parseTonemap(value, &s.tonemap);
     if (key == "gamut_expansion") return num(&s.gamutExpansion);
     if (key == "adapt_release") return num(&s.adaptRelease);
+    if (key == "adapt_strength") return num(&s.adaptStrength);
     if (key == "shoulder_start") return num(&s.shoulderStart);
     if (key == "shoulder_pow") return num(&s.shoulderPow);
     if (key == "split") return num(&s.split);
@@ -277,6 +279,8 @@ ItmParams toPushConstants(const Settings& s)
     p.tonemap        = static_cast<uint32_t>(s.tonemap);
     p.gamutExpansion = s.gamutExpansion;
     p.sourcePeakNits = s.peakNits;
+    p.sceneWhite     = 1.0f;
+    p.shadowGamma    = 1.0f;
     return p;
 }
 
@@ -410,7 +414,8 @@ void loadInitialSettings()
         // Environment overrides, e.g. HDRKET_PEAK_NITS=600 -> peak_nits.
         static const char* keys[] = {"peak_nits", "middle_grey_nits", "paper_white_nits", "expansion", "saturation",
                                      "black_floor", "eotf", "tonemap", "gamut_expansion", "shoulder_start",
-                                     "shoulder_pow", "adapt_release", "split", "pattern", "bypass"};
+                                     "shoulder_pow", "adapt_release", "adapt_strength", "split", "pattern",
+                                     "bypass"};
         for (const char* key : keys) {
             std::string env = "HDRKET_";
             for (const char* c = key; *c; c++)
@@ -471,6 +476,7 @@ bool savePreset(std::string* pathOut)
             << "tonemap = \"" << tonemapName(s.tonemap) << "\"\n"
             << "gamut_expansion = " << s.gamutExpansion << "\n"
             << "adapt_release = " << s.adaptRelease << "\n"
+            << "adapt_strength = " << s.adaptStrength << "\n"
             << "shoulder_start = " << s.shoulderStart << "\n"
             << "shoulder_pow = " << s.shoulderPow << "\n";
         for (auto& [k, v] : previous)

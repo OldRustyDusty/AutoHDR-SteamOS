@@ -209,9 +209,9 @@ void     setHdrMetadata(SwapchainData& sc, float peakNits, float paperWhiteNits)
 uint32_t findMemoryType(const DeviceData& dev, uint32_t typeBits, VkMemoryPropertyFlags want);
 
 // Analysis buffer: histogram bins, output peak bits, sample count, content
-// peak bits, wide-gamut sample count (uint32 each). Layout matches `Stats` in
+// peak bits, wide-gamut sample count, scene luminance bins (uint32 each). Layout matches `Stats` in
 // itm.comp.
-constexpr VkDeviceSize kStatsBufferSize = (64 + 4) * sizeof(uint32_t);
+constexpr VkDeviceSize kStatsBufferSize = (64 + 4 + 32) * sizeof(uint32_t);
 
 // present.cpp
 VkResult QueuePresentKHR(VkQueue, const VkPresentInfoKHR*);

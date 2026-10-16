@@ -86,7 +86,12 @@
         <button data-v="map">Map</button>
         <button data-v="adaptive">Adaptive</button>
       </div>
-      <div class="hint">What happens above peak. Adaptive follows each scene's brightest point and compresses only what that scene needs.</div>
+      <div class="hint">Off sends highlights as is, Clip cuts them at peak, Map rolls them off smoothly. Adaptive also reshapes each scene: dim scenes keep their highlight pop and dark scenes get lifted shadows.</div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Adaptive strength</span><span class="value" id="v-adapt_strength"></span></div>
+      <input type="range" id="adapt_strength" min="0" max="1" step="0.01">
+      <div class="hint">How strongly Adaptive follows the scene. Some games benefit more than others.</div>
     </div>
   </section>
 
@@ -179,6 +184,7 @@ const sliders = {
   expansion:        v => `${Math.round(v * 100)}%`,
   gamut_expansion:  v => `${Math.round(v * 100)}%`,
   adapt_release:    v => `${(+v).toFixed(1)} s`,
+  adapt_strength:   v => `${Math.round(v * 100)}%`,
   saturation:       v => `${Math.round(v * 100)}%`,
   black_floor:      v => (+v).toFixed(3),
   shoulder_start:   v => `${Math.round(v * 100)}%`,
@@ -229,8 +235,9 @@ function applyState(s) {
       (d.edid_peak > 0 ? `, which reports ${d.edid_peak} nits.` : '. Use the test pattern to find its real maximum.');
   const tm = s.settings.tonemap;
   $('s-tonemap').textContent = !st.frames ? '' :
-    tm === 'adaptive' ? (st.tonemap_source ? `Adaptive: scene peaks at ${st.tonemap_source} nits, rolled off into ${s.settings.peak_nits}.`
-                                           : `Adaptive: scene fits within ${s.settings.peak_nits} nits, nothing compressed.`) :
+    tm === 'adaptive' ? `Adaptive: scene white at ${Math.round(st.scene_white * 100)}% of SDR white` +
+        (st.shadow_lift > 0.02 ? `, shadows lifted ${Math.round(st.shadow_lift * 100)}%` : '') +
+        (st.tonemap_source ? `, highlights from ${st.tonemap_source} nits rolled into ${s.settings.peak_nits}.` : ', nothing above peak.') :
     tm === 'map' ? (st.tonemap_source ? `Map: ${st.tonemap_source} nits rolled off into ${s.settings.peak_nits}.` : 'Map: nothing above peak.') :
     tm === 'clip' ? `Clip: anything above ${s.settings.peak_nits} nits is cut off.` :
     `Off: brightest content ${st.content_peak} nits is sent as is.`;

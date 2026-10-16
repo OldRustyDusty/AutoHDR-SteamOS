@@ -31,6 +31,7 @@ struct Settings {
     float shoulderStart = 0.5f;    // SDR luminance where expansion begins
     float shoulderPow   = 2.5f;    // curve shape above the shoulder
     float adaptRelease  = 2.0f;    // adaptive tonemap: seconds to relax after a bright scene
+    float adaptStrength = 0.5f;    // adaptive: how far highlights and shadows follow the scene
     // Comparison and calibration aids
     float split   = 0.0f;          // left fraction of the screen shows the SDR reference
     bool  pattern = false;         // brightness step bars across the top
@@ -59,9 +60,11 @@ struct ItmParams {
     uint32_t tonemap;
     float    gamutExpansion;
     float    sourcePeakNits; // tone map input range; filled per frame by present.cpp
-    float    pad;
+    float    sceneWhite;     // adaptive scene white (1 = static); per frame
+    float    shadowGamma;    // adaptive shadow lift (1 = none); per frame
+    float    pad0, pad1, pad2;
 };
-static_assert(sizeof(ItmParams) == 64);
+static_assert(sizeof(ItmParams) == 80);
 
 enum ItmFlags : uint32_t {
     ITM_BYPASS  = 1u << 1,
@@ -100,6 +103,8 @@ void               loadInitialSettings(); // defaults -> preset -> HDRKET_* env
 constexpr int kHistogramBins = 64;
 constexpr float kHistogramMinLog2 = -2.0f; // 0.25 nits
 constexpr float kHistogramMaxLog2 = 14.0f; // 16384 nits
+constexpr int   kSceneBins        = 32;    // SDR luminance 2^-12 .. 1
+constexpr float kSceneMinLog2     = -12.0f;
 
 struct Stats {
     float frameAvgNits  = 0;  // average light level of the last frame
@@ -109,6 +114,8 @@ struct Stats {
     float contentPeakNits = 0; // brightest sample before tone mapping, last frame
     float tonemapSourceNits = 0; // range the tone mapper is compressing from (0 = not mapping)
     float wideGamutFraction = 0; // share of pixels with colors outside sRGB, smoothed
+    float sceneWhite  = 1;  // adaptive: SDR level treated as this scene's white
+    float shadowLift  = 0;  // adaptive: 0..1, how much shadows are lifted
     std::array<float, kHistogramBins> histogram{}; // fraction of pixels per bin
     uint64_t frames = 0;
 };

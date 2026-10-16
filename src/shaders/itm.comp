@@ -34,10 +34,13 @@ layout(set = 0, binding = 2, std430) buffer Stats {
     uint samples;
     uint contentPeakBits; // brightest sample before tone mapping (drives adaptive mode)
     uint wideSamples;     // samples whose color lies outside BT.709 (sRGB)
+    uint scene[SCENE_BINS]; // the game's SDR luminance, before any processing
 } stats;
 
-void recordStats(vec3 nits, float contentPeak)
+void recordStats(vec3 nits, float contentPeak, float sdrY)
 {
+    float sl = (log2(max(sdrY, exp2(SCENE_MIN_LOG2))) - SCENE_MIN_LOG2) / -SCENE_MIN_LOG2;
+    atomicAdd(stats.scene[uint(clamp(sl, 0.0, 1.0) * float(SCENE_BINS - 1) + 0.5)], 1u);
     atomicMax(stats.contentPeakBits, floatBitsToUint(max(contentPeak, 0.0)));
     // Wide gamut: needs a negative BT.709 component to be represented.
     vec3 c709 = bt2020ToBt709(nits);
@@ -63,12 +66,23 @@ vec3 inverseToneMap(vec3 c)
         y = yf;
     }
 
+    // Adaptive shadow lift for dark scenes: reshapes only the range below
+    // middle grey, keeping black at black and grey where it was.
+    if (p.shadowGamma < 0.999 && y > 0.0 && y < 0.18) {
+        float ys = 0.18 * pow(y / 0.18, p.shadowGamma);
+        c *= ys / y;
+        y = ys;
+    }
+
     // Expansion: SDR white climbs from paper white toward display peak, or
     // past it (expansion > 1) for the tone mapper to bring back.
     float peakRel = max(p.peakNits / p.paperWhiteNits, 1.0);
     float whiteTo = mix(1.0, peakRel, clamp(p.expansion, 0.0, 1.5));
     float start   = clamp(p.shoulderStart, 0.0, 0.99);
-    float t       = clamp((y - start) / (1.0 - start), 0.0, 1.0);
+    // Adaptive: the scene's own brightest content counts as white, so dim
+    // scenes still get highlights (sceneWhite is 1 when static).
+    float yScene  = y / max(p.sceneWhite, 0.05);
+    float t       = clamp((yScene - start) / (1.0 - start), 0.0, 1.0);
     float yOut    = y + pow(t, max(p.shoulderPow, 0.01)) * (whiteTo - 1.0);
     if (y > 1e-6)
         c *= yOut / y;
@@ -116,7 +130,7 @@ void main()
     }
 
     if ((pos.x & 7) == 0 && (pos.y & 7) == 0)
-        recordStats(nits, contentPeak);
+        recordStats(nits, contentPeak, luminance709(sdr));
 
     if (p.splitX > 0.0 && abs(pos.x - splitPx) < 2)
         nits = vec3(p.paperWhiteNits * 0.5);

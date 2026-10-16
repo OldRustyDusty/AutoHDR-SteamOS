@@ -33,6 +33,10 @@ struct StatsAccumulator {
     // long) and relaxes slowly afterwards (so it doesn't pump on cuts).
     float adaptiveLog2   = 0;
     float adaptedForPeak = 0;
+    // Scene adaptation (Adaptive mode): scene white in log2 SDR units and the
+    // shadow gamma, both smoothed like the peak follower.
+    float sceneWhiteLog2 = 0;
+    float shadowGamma    = 1;
     std::chrono::steady_clock::time_point lastFrame{};
 
     void addFrame(const uint32_t* raw, const Settings& settings)
@@ -62,6 +66,45 @@ struct StatsAccumulator {
         stats.contentPeakNits = contentPeak;
         float wide = float(raw[kHistogramBins + 3]) / float(samples);
         stats.wideGamutFraction += (wide - stats.wideGamutFraction) * 0.2f;
+
+        // Scene statistics of the game's own image: the level 99.5% of pixels
+        // stay under (specks and single lights don't count) and the
+        // log-average brightness (how dark the scene is overall).
+        const uint32_t* scene = raw + kHistogramBins + 4;
+        double sceneCumulative = 0, logSum = 0;
+        float  white           = 1.0f;
+        bool   whiteFound = false;
+        for (int i = 0; i < kSceneBins; i++) {
+            double frac = double(scene[i]) / double(samples);
+            float  l2   = kSceneMinLog2 * (1.0f - float(i) / float(kSceneBins - 1));
+            logSum += frac * l2;
+            sceneCumulative += frac;
+            if (!whiteFound && sceneCumulative >= 0.995) {
+                white      = std::exp2(l2);
+                whiteFound = true;
+            }
+        }
+        float strength = settings.tonemap == Tonemap::Adaptive ? settings.adaptStrength : 0.0f;
+        // Dim scenes may treat as little as 25% of SDR white as their white.
+        float whiteFloor  = 1.0f - 0.75f * strength;
+        float whiteTarget = std::log2(std::clamp(white, whiteFloor, 1.0f));
+        // Darkness 0..1: log-average below ~8% grey, full at ~1%.
+        float darkness    = std::clamp((std::log2(0.08f) - float(logSum)) / 3.0f, 0.0f, 1.0f);
+        float gammaTarget = 1.0f - 0.25f * strength * darkness;
+        // Brightening (less stretch, less lift) reacts fast; darkening is slow.
+        auto follow = [&](float& v, float target) {
+            float tau = target > v ? kAdaptAttackSeconds : settings.adaptRelease;
+            v += (target - v) * (1.0f - std::exp(-dt / tau));
+        };
+        if (strength <= 0.0f) {
+            sceneWhiteLog2 = 0;
+            shadowGamma    = 1;
+        } else {
+            follow(sceneWhiteLog2, whiteTarget);
+            follow(shadowGamma, gammaTarget);
+        }
+        stats.sceneWhite = std::exp2(sceneWhiteLog2);
+        stats.shadowLift = (1.0f - shadowGamma) / 0.25f;
 
         double weighted = 0, cumulative = 0;
         float  p99      = 0;
@@ -344,6 +387,8 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
             const Settings settings = currentSettings();
             ItmParams      params   = toPushConstants(settings);
             params.sourcePeakNits   = tonemapSourceNits(settings);
+            params.sceneWhite       = std::exp2(g_accumulator.sceneWhiteLog2);
+            params.shadowGamma      = g_accumulator.shadowGamma;
             g_accumulator.stats.tonemapSourceNits =
                 (settings.tonemap == Tonemap::Map || settings.tonemap == Tonemap::Adaptive) &&
                         params.sourcePeakNits > settings.peakNits

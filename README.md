@@ -60,7 +60,8 @@ game stays full screen. **Save for this game** writes
 | Peak brightness | Your display's real maximum. Find it with the test pattern: the bar where brightness stops increasing. Saved per display; tick *Peak for this game only* to give one game its own value on this display. |
 | Middle grey | Overall brightness: where SDR 18% grey lands. SDR white sits at grey / 0.18. |
 | Highlight expansion | How far bright highlights reach toward peak. 0 = plain SDR in an HDR container; above 100% they aim past peak and the tone mapper rolls them back. |
-| Tone mapping | What happens above peak. **Off**: sent as is. **Clip**: cut at peak, hue kept. **Map**: BT.2390 roll-off from a fixed range. **Adaptive**: the same roll-off, following each scene's brightest point (fast to react, slow to relax) so dim scenes are untouched. |
+| Tone mapping | What happens above peak. **Off**: sent as is. **Clip**: cut at peak, hue kept. **Map**: BT.2390 roll-off from a fixed range. **Adaptive**: the same roll-off following each scene's brightest point, plus scene adaptation: the game's own brightest content (99.5th percentile) counts as white, so dim scenes keep their highlight pop, and dark scenes get a gentle shadow lift below middle grey. Reacts fast when a scene brightens, relaxes slowly when it darkens. |
+| Adaptive strength | How far Adaptive follows the scene (0 = same as Map). |
 | Content gamma | How the game was mastered: Linear, sRGB, 2.2 (most PC games), 2.4. |
 | Saturation | Color intensity around each pixel's own brightness. |
 | Gamut expansion | Pushes saturated colors toward BT.2020. Greys and low-chroma tones (skin) are protected; brightness is kept. |
@@ -96,6 +97,7 @@ Any preset key can be set as `HDRKET_<KEY>`, applied on top of the saved preset:
 `HDRKET_EXPANSION`, `HDRKET_SATURATION`, `HDRKET_BLACK_FLOOR`, `HDRKET_EOTF`
 (`linear`, `srgb`, `gamma22`, `gamma24`), `HDRKET_TONEMAP` (`off`, `clip`,
 `map`, `adaptive`), `HDRKET_GAMUT_EXPANSION`, `HDRKET_ADAPT_RELEASE` (seconds),
+`HDRKET_ADAPT_STRENGTH`,
 `HDRKET_SPLIT`, `HDRKET_PATTERN`,
 `HDRKET_BYPASS`. Also `HDRKET_PRESET=<name>` picks a preset file, and
 `HDRKET_OUTPUT=hdr10|scrgb|off`.

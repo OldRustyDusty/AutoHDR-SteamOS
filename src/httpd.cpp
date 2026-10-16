@@ -71,6 +71,7 @@ std::string stateJson()
     j += std::string("\"tonemap\":\"") + settingsTonemapName(s.tonemap) + "\",";
     j += "\"gamut_expansion\":" + fmt("%.3f", s.gamutExpansion) + ",";
     j += "\"adapt_release\":" + fmt("%.2f", s.adaptRelease) + ",";
+    j += "\"adapt_strength\":" + fmt("%.2f", s.adaptStrength) + ",";
     j += "\"shoulder_start\":" + fmt("%.3f", s.shoulderStart) + ",";
     j += "\"shoulder_pow\":" + fmt("%.3f", s.shoulderPow) + ",";
     j += "\"split\":" + fmt("%.3f", s.split) + ",";
@@ -93,6 +94,8 @@ std::string stateJson()
     j += "\"content_peak\":" + fmt("%.0f", st.contentPeakNits) + ",";
     j += "\"tonemap_source\":" + fmt("%.0f", st.tonemapSourceNits) + ",";
     j += "\"wide_gamut\":" + fmt("%.4f", st.wideGamutFraction) + ",";
+    j += "\"scene_white\":" + fmt("%.3f", st.sceneWhite) + ",";
+    j += "\"shadow_lift\":" + fmt("%.3f", st.shadowLift) + ",";
     j += "\"frames\":" + std::to_string(st.frames) + ",";
     j += "\"histogram\":[";
     for (int i = 0; i < kHistogramBins; i++)
