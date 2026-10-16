@@ -92,6 +92,7 @@ std::string stateJson()
     j += "\"held_peak\":" + fmt("%.0f", st.heldPeakNits) + ",";
     j += "\"content_peak\":" + fmt("%.0f", st.contentPeakNits) + ",";
     j += "\"tonemap_source\":" + fmt("%.0f", st.tonemapSourceNits) + ",";
+    j += "\"wide_gamut\":" + fmt("%.4f", st.wideGamutFraction) + ",";
     j += "\"frames\":" + std::to_string(st.frames) + ",";
     j += "\"histogram\":[";
     for (int i = 0; i < kHistogramBins; i++)

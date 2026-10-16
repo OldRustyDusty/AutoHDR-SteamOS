@@ -108,6 +108,7 @@ struct Stats {
     float heldPeakNits  = 0;  // running peak, decays slowly
     float contentPeakNits = 0; // brightest sample before tone mapping, last frame
     float tonemapSourceNits = 0; // range the tone mapper is compressing from (0 = not mapping)
+    float wideGamutFraction = 0; // share of pixels with colors outside sRGB, smoothed
     std::array<float, kHistogramBins> histogram{}; // fraction of pixels per bin
     uint64_t frames = 0;
 };

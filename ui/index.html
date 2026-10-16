@@ -125,7 +125,8 @@
       <div class="stat"><b id="s-p99">–</b><small>99th pct</small></div>
       <div class="stat"><b id="s-avg">–</b><small>average</small></div>
     </div>
-    <div class="hint" id="s-tonemap" style="margin:-2px 0 8px"></div>
+    <div class="hint" id="s-tonemap" style="margin:-2px 0 2px"></div>
+    <div class="hint" id="s-gamut" style="margin:0 0 8px"></div>
     <canvas id="hist" aria-label="Brightness histogram"></canvas>
     <div class="hint">Pixels by brightness. The amber line is your peak setting, the grey line is SDR white.</div>
   </section>
@@ -233,6 +234,8 @@ function applyState(s) {
     tm === 'map' ? (st.tonemap_source ? `Map: ${st.tonemap_source} nits rolled off into ${s.settings.peak_nits}.` : 'Map: nothing above peak.') :
     tm === 'clip' ? `Clip: anything above ${s.settings.peak_nits} nits is cut off.` :
     `Off: brightest content ${st.content_peak} nits is sent as is.`;
+  $('s-gamut').textContent = !st.frames ? '' :
+    `Colors beyond sRGB: ${(st.wide_gamut * 100).toFixed(st.wide_gamut < 0.1 ? 1 : 0)}% of pixels.`;
   $('output').textContent = o.width ? `Game renders ${o.source} at ${o.width}×${o.height}; output ${o.format}, ${o.colorspace}.` : '';
   drawHistogram(st);
 }

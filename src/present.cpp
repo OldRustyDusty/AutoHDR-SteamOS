@@ -60,6 +60,8 @@ struct StatsAccumulator {
         float tau = target > adaptiveLog2 ? kAdaptAttackSeconds : settings.adaptRelease;
         adaptiveLog2 += (target - adaptiveLog2) * (1.0f - std::exp(-dt / tau));
         stats.contentPeakNits = contentPeak;
+        float wide = float(raw[kHistogramBins + 3]) / float(samples);
+        stats.wideGamutFraction += (wide - stats.wideGamutFraction) * 0.2f;
 
         double weighted = 0, cumulative = 0;
         float  p99      = 0;

@@ -33,11 +33,16 @@ layout(set = 0, binding = 2, std430) buffer Stats {
     uint peakBits;        // float bits of the brightest output sample (nits)
     uint samples;
     uint contentPeakBits; // brightest sample before tone mapping (drives adaptive mode)
+    uint wideSamples;     // samples whose color lies outside BT.709 (sRGB)
 } stats;
 
 void recordStats(vec3 nits, float contentPeak)
 {
     atomicMax(stats.contentPeakBits, floatBitsToUint(max(contentPeak, 0.0)));
+    // Wide gamut: needs a negative BT.709 component to be represented.
+    vec3 c709 = bt2020ToBt709(nits);
+    if (min3(c709) < -0.01 * max3(c709))
+        atomicAdd(stats.wideSamples, 1u);
     float level = max3(nits);
     float t     = (log2(max(level, 1e-4)) - HIST_MIN_LOG2) / (HIST_MAX_LOG2 - HIST_MIN_LOG2);
     uint  bin   = uint(clamp(t, 0.0, 1.0) * float(HIST_BINS - 1) + 0.5);
