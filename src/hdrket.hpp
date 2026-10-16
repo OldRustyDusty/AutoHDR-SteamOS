@@ -43,9 +43,15 @@ namespace hdrket {
     X(CreateImage)                  \
     X(DestroyImage)                 \
     X(GetImageMemoryRequirements)   \
+    X(CreateBuffer)                 \
+    X(DestroyBuffer)                \
+    X(GetBufferMemoryRequirements)  \
+    X(MapMemory)                    \
+    X(UnmapMemory)                  \
     X(AllocateMemory)               \
     X(FreeMemory)                   \
     X(BindImageMemory)              \
+    X(BindBufferMemory)             \
     X(CreateImageView)              \
     X(DestroyImageView)             \
     X(CreateSampler)                \
@@ -151,6 +157,10 @@ struct ImageSlot {
     VkCommandBuffer cmd         = VK_NULL_HANDLE;
     uint32_t        cmdFamily   = UINT32_MAX;
     VkSemaphore     done        = VK_NULL_HANDLE; // signalled by our pass, waited by present
+    VkBuffer        statsBuffer = VK_NULL_HANDLE; // histogram written by the pass, read on the CPU
+    VkDeviceMemory  statsMemory = VK_NULL_HANDLE;
+    void*           statsMapped = nullptr;
+    bool            statsPending = false;         // pass submitted, results not read yet
     SubmitFenceRef  inFlight;                     // guards cmd re-recording
 };
 
@@ -167,6 +177,7 @@ struct SwapchainData {
     bool           appMutable = false;     // app asked for MUTABLE_FORMAT
     std::vector<VkFormat> appViewFormats;  // app's VkImageFormatListCreateInfo, if any
     bool           imagesReady = false;
+    float          metadataPeak = 0;  // peak last sent with vkSetHdrMetadataEXT
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     std::vector<ImageSlot> slots;
 };
@@ -194,6 +205,11 @@ void     DestroySwapchainKHR(VkDevice, VkSwapchainKHR, const VkAllocationCallbac
 VkResult GetSwapchainImagesKHR(VkDevice, VkSwapchainKHR, uint32_t*, VkImage*);
 void     releaseSwapchain(SwapchainData& sc); // frees our per-image resources
 void     destroyDeviceResources(DeviceData& dev);
+void     setHdrMetadata(SwapchainData& sc, float peakNits, float paperWhiteNits);
+uint32_t findMemoryType(const DeviceData& dev, uint32_t typeBits, VkMemoryPropertyFlags want);
+
+// Analysis buffer: histogram bins, peak bits, sample count (uint32 each).
+constexpr VkDeviceSize kStatsBufferSize = (64 + 2) * sizeof(uint32_t);
 
 // present.cpp
 VkResult QueuePresentKHR(VkQueue, const VkPresentInfoKHR*);

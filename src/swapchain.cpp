@@ -7,6 +7,7 @@
 
 #include "hdrket.hpp"
 #include "log.hpp"
+#include "params.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -91,21 +92,15 @@ OutputChoice chooseOutput(DeviceData& dev, VkSurfaceKHR surface)
     case OutputPref::Auto:
         break;
     }
-    // Default to fp16 scRGB: linear, full precision in the shadows, and no
-    // gamut conversion needed for the 709 source. HDR10 halves the bandwidth.
-    if (hasScRGB)
-        return scrgb;
+    // Default to HDR10: PQ code values are absolute nits on every compositor.
+    // scRGB is relative on Wayland: Mesa sends no luminances, so the protocol
+    // default makes 1.0 the reference white, which KWin maps to the user's SDR
+    // brightness (gamescope instead treats 1.0 as 80 nits).
     if (hasHDR10)
         return hdr10;
+    if (hasScRGB)
+        return scrgb;
     return {};
-}
-
-uint32_t findMemoryType(const DeviceData& dev, uint32_t typeBits, VkMemoryPropertyFlags want)
-{
-    for (uint32_t i = 0; i < dev.memoryProperties.memoryTypeCount; i++)
-        if ((typeBits & (1u << i)) && (dev.memoryProperties.memoryTypes[i].propertyFlags & want) == want)
-            return i;
-    return UINT32_MAX;
 }
 
 void destroySlots(SwapchainData& sc)
@@ -121,6 +116,10 @@ void destroySlots(SwapchainData& sc)
             vk.FreeCommandBuffers(dev.device, commandPoolFor(dev, s.cmdFamily), 1, &s.cmd);
         if (s.done)
             vk.DestroySemaphore(dev.device, s.done, nullptr);
+        if (s.statsBuffer)
+            vk.DestroyBuffer(dev.device, s.statsBuffer, nullptr);
+        if (s.statsMemory)
+            vk.FreeMemory(dev.device, s.statsMemory, nullptr);
         if (s.realView)
             vk.DestroyImageView(dev.device, s.realView, nullptr);
         if (s.shadowView)
@@ -137,12 +136,24 @@ void destroySlots(SwapchainData& sc)
     sc.imagesReady    = false;
 }
 
-void setHdrMetadata(SwapchainData& sc)
+} // namespace
+
+uint32_t findMemoryType(const DeviceData& dev, uint32_t typeBits, VkMemoryPropertyFlags want)
+{
+    for (uint32_t i = 0; i < dev.memoryProperties.memoryTypeCount; i++)
+        if ((typeBits & (1u << i)) && (dev.memoryProperties.memoryTypes[i].propertyFlags & want) == want)
+            return i;
+    return UINT32_MAX;
+}
+
+void setHdrMetadata(SwapchainData& sc, float peakNits, float paperWhiteNits)
 {
     DeviceData& dev = *sc.device;
+    sc.metadataPeak = peakNits;
     if (!dev.hdrMetadata || !dev.vk.SetHdrMetadataEXT)
         return;
-    // Sprint 1: fixed values; later these follow the peak-nits knob.
+    // Tell the compositor our real range so it only tone maps what the
+    // display can't show.
     VkHdrMetadataEXT md{VK_STRUCTURE_TYPE_HDR_METADATA_EXT};
     if (sc.mode == OutputMode::HDR10) {
         md.displayPrimaryRed   = {0.708f, 0.292f};
@@ -154,14 +165,12 @@ void setHdrMetadata(SwapchainData& sc)
         md.displayPrimaryBlue  = {0.150f, 0.060f};
     }
     md.whitePoint                = {0.3127f, 0.3290f};
-    md.maxLuminance              = 1000.0f;
+    md.maxLuminance              = peakNits;
     md.minLuminance              = 0.0f;
-    md.maxContentLightLevel      = 1000.0f;
-    md.maxFrameAverageLightLevel = 200.0f;
+    md.maxContentLightLevel      = peakNits;
+    md.maxFrameAverageLightLevel = std::min(paperWhiteNits, peakNits);
     dev.vk.SetHdrMetadataEXT(dev.device, 1, &sc.handle, &md);
 }
-
-} // namespace
 
 VkResult CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo,
                             const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain)
@@ -254,7 +263,12 @@ VkResult CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCr
     HK_INFO("HDR swapchain: %s / %s replaces %s / %s", formatName(out.format), colorSpaceName(out.colorSpace),
             formatName(app.imageFormat), colorSpaceName(app.imageColorSpace));
 
-    setHdrMetadata(*sc);
+    loadInitialSettings();
+    Settings settings = currentSettings();
+    setHdrMetadata(*sc, settings.peakNits, settings.paperWhiteNits());
+    publishSwapchainInfo({formatName(out.format), colorSpaceName(out.colorSpace), formatName(app.imageFormat),
+                          app.imageExtent.width, app.imageExtent.height});
+    startTuningServer();
     globals().swapchains[*pSwapchain] = std::move(sc);
     return VK_SUCCESS;
 }
@@ -306,10 +320,11 @@ static bool createSlots(SwapchainData& sc)
     VkDescriptorPoolSize sizes[] = {
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, count},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, count},
     };
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets       = count;
-    dpci.poolSizeCount = 2;
+    dpci.poolSizeCount = 3;
     dpci.pPoolSizes    = sizes;
     if (vk.CreateDescriptorPool(dev.device, &dpci, nullptr, &sc.descriptorPool) != VK_SUCCESS)
         return false;
@@ -352,6 +367,26 @@ static bool createSlots(SwapchainData& sc)
         if (vk.CreateSemaphore(dev.device, &sci, nullptr, &s.done) != VK_SUCCESS)
             return false;
 
+        // Small host-visible buffer for the analysis histogram.
+        VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bci.size        = kStatsBufferSize;
+        bci.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vk.CreateBuffer(dev.device, &bci, nullptr, &s.statsBuffer) != VK_SUCCESS)
+            return false;
+        VkMemoryRequirements breq;
+        vk.GetBufferMemoryRequirements(dev.device, s.statsBuffer, &breq);
+        VkMemoryAllocateInfo bmai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        bmai.allocationSize  = breq.size;
+        bmai.memoryTypeIndex = findMemoryType(dev, breq.memoryTypeBits,
+                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (bmai.memoryTypeIndex == UINT32_MAX ||
+            vk.AllocateMemory(dev.device, &bmai, nullptr, &s.statsMemory) != VK_SUCCESS ||
+            vk.BindBufferMemory(dev.device, s.statsBuffer, s.statsMemory, 0) != VK_SUCCESS ||
+            vk.MapMemory(dev.device, s.statsMemory, 0, VK_WHOLE_SIZE, 0, &s.statsMapped) != VK_SUCCESS)
+            return false;
+        std::memset(s.statsMapped, 0, kStatsBufferSize);
+
         VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dsai.descriptorPool     = sc.descriptorPool;
         dsai.descriptorSetCount = 1;
@@ -361,7 +396,7 @@ static bool createSlots(SwapchainData& sc)
 
         VkDescriptorImageInfo src{dev.sampler, s.shadowView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkDescriptorImageInfo dst{VK_NULL_HANDLE, s.realView, VK_IMAGE_LAYOUT_GENERAL};
-        VkWriteDescriptorSet  writes[2]{};
+        VkWriteDescriptorSet  writes[3]{};
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet          = s.set;
         writes[0].dstBinding      = 0;
@@ -372,7 +407,13 @@ static bool createSlots(SwapchainData& sc)
         writes[1].dstBinding      = 1;
         writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         writes[1].pImageInfo      = &dst;
-        vk.UpdateDescriptorSets(dev.device, 2, writes, 0, nullptr);
+        VkDescriptorBufferInfo statsInfo{s.statsBuffer, 0, kStatsBufferSize};
+        writes[2]                 = writes[0];
+        writes[2].dstBinding      = 2;
+        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].pImageInfo      = nullptr;
+        writes[2].pBufferInfo     = &statsInfo;
+        vk.UpdateDescriptorSets(dev.device, 3, writes, 0, nullptr);
     }
 
     sc.imagesReady = true;

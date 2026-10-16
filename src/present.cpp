@@ -12,43 +12,54 @@
 #include "itm_hdr10_spv.h"
 #include "itm_scrgb_spv.h"
 
-#include <cstdlib>
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace hdrket {
 
-static float envFloat(const char* name, float fallback)
-{
-    const char* v = std::getenv(name);
-    if (!v || !*v)
-        return fallback;
-    char* end = nullptr;
-    float f   = std::strtof(v, &end);
-    return end != v ? f : fallback;
-}
+namespace {
 
-ItmParams currentParams()
-{
-    static const ItmParams params = [] {
-        ItmParams p;
-        p.peakNits       = envFloat("HDRKET_PEAK_NITS", p.peakNits);
-        p.paperWhiteNits = envFloat("HDRKET_PAPER_WHITE", p.paperWhiteNits);
-        p.expansion      = envFloat("HDRKET_EXPANSION", p.expansion);
-        p.saturation     = envFloat("HDRKET_SATURATION", p.saturation);
-        p.blackFloor     = envFloat("HDRKET_BLACK_FLOOR", p.blackFloor);
-        p.splitX         = envFloat("HDRKET_SPLIT", p.splitX);
-        const char* eotf = std::getenv("HDRKET_EOTF");
-        if (eotf && !std::strcmp(eotf, "srgb"))
-            p.flags |= ITM_SRGB_DECODE;
-        if (envFloat("HDRKET_BYPASS", 0.0f) != 0.0f)
-            p.flags |= ITM_BYPASS;
-        HK_INFO("params: peak %.0f nits, paper white %.0f nits, expansion %.2f, saturation %.2f, black floor %.3f, %s",
-                p.peakNits, p.paperWhiteNits, p.expansion, p.saturation, p.blackFloor,
-                (p.flags & ITM_SRGB_DECODE) ? "sRGB decode" : "gamma 2.2 decode");
-        return p;
-    }();
-    return params;
-}
+// Folds one frame's histogram into the stats the UI shows.
+struct StatsAccumulator {
+    Stats stats;
+
+    void addFrame(const uint32_t* raw)
+    {
+        const uint32_t samples = raw[kHistogramBins + 1];
+        if (!samples)
+            return;
+        float peak;
+        std::memcpy(&peak, &raw[kHistogramBins], sizeof(peak));
+
+        double weighted = 0, cumulative = 0;
+        float  p99      = 0;
+        bool   p99Found = false;
+        for (int i = 0; i < kHistogramBins; i++) {
+            float frac  = float(raw[i]) / float(samples);
+            float l2    = kHistogramMinLog2 + (kHistogramMaxLog2 - kHistogramMinLog2) * float(i) / float(kHistogramBins - 1);
+            float nits  = std::exp2(l2);
+            weighted   += frac * nits;
+            cumulative += frac;
+            if (!p99Found && cumulative >= 0.99) {
+                p99      = nits;
+                p99Found = true;
+            }
+            // Smooth the displayed histogram so it doesn't flicker.
+            stats.histogram[i] += (frac - stats.histogram[i]) * 0.2f;
+        }
+        stats.frameAvgNits  = float(weighted);
+        stats.framePeakNits = peak;
+        stats.p99Nits       = p99;
+        // Held peak: jumps up immediately, decays over a few seconds.
+        stats.heldPeakNits = std::max(peak, stats.heldPeakNits * 0.995f);
+        stats.frames++;
+    }
+};
+
+StatsAccumulator g_accumulator; // guarded by the global layer lock
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Device-wide objects
@@ -90,7 +101,7 @@ bool ensurePipelines(DeviceData& dev)
         return false;
 
     if (!dev.setLayout) {
-        VkDescriptorSetLayoutBinding bindings[2]{};
+        VkDescriptorSetLayoutBinding bindings[3]{};
         bindings[0].binding            = 0;
         bindings[0].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount    = 1;
@@ -100,8 +111,12 @@ bool ensurePipelines(DeviceData& dev)
         bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         bindings[1].descriptorCount    = 1;
         bindings[1].stageFlags         = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[2].binding            = 2;
+        bindings[2].descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[2].descriptorCount    = 1;
+        bindings[2].stageFlags         = VK_SHADER_STAGE_COMPUTE_BIT;
         VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        dslci.bindingCount = 2;
+        dslci.bindingCount = 3;
         dslci.pBindings    = bindings;
         if (vk.CreateDescriptorSetLayout(dev.device, &dslci, nullptr, &dev.setLayout) != VK_SUCCESS)
             return false;
@@ -235,8 +250,16 @@ static bool record(DeviceData& dev, SwapchainData& sc, ImageSlot& s, const ItmPa
     VkImageMemoryBarrier post[2];
     imageBarrier(post[0], s.real, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_SHADER_WRITE_BIT, 0);
     imageBarrier(post[1], s.shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0, 0);
-    vk.CmdPipelineBarrier(s.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0,
-                          nullptr, 2, post);
+    VkBufferMemoryBarrier statsBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    statsBarrier.srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT;
+    statsBarrier.dstAccessMask       = VK_ACCESS_HOST_READ_BIT;
+    statsBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    statsBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    statsBarrier.buffer              = s.statsBuffer;
+    statsBarrier.size                = VK_WHOLE_SIZE;
+    vk.CmdPipelineBarrier(s.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT | VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+                          &statsBarrier, 2, post);
 
     return vk.EndCommandBuffer(s.cmd) == VK_SUCCESS;
 }
@@ -273,7 +296,8 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
             if (!fence)
                 active.clear();
 
-            const ItmParams          params = currentParams();
+            const Settings  settings = currentSettings();
+            const ItmParams params   = toPushConstants(settings);
             std::vector<VkCommandBuffer> cmds;
             for (auto [sc, index] : active) {
                 ImageSlot& s = sc->slots[index];
@@ -281,6 +305,15 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
                     dev->vk.WaitForFences(dev->device, 1, &s.inFlight->fence, VK_TRUE, UINT64_MAX);
                     s.inFlight.reset();
                 }
+                // That frame is done: harvest its histogram, then clear for reuse.
+                if (s.statsPending) {
+                    g_accumulator.addFrame(static_cast<const uint32_t*>(s.statsMapped));
+                    publishStats(g_accumulator.stats);
+                    s.statsPending = false;
+                }
+                std::memset(s.statsMapped, 0, kStatsBufferSize);
+                if (settings.peakNits != sc->metadataPeak)
+                    setHdrMetadata(*sc, settings.peakNits, settings.paperWhiteNits());
                 if (s.cmd && s.cmdFamily != fam->second) {
                     dev->vk.FreeCommandBuffers(dev->device, commandPoolFor(*dev, s.cmdFamily), 1, &s.cmd);
                     s.cmd = VK_NULL_HANDLE;
@@ -297,6 +330,7 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
                 }
                 if (!record(*dev, *sc, s, params))
                     continue;
+                s.statsPending = true;
                 cmds.push_back(s.cmd);
                 ourSemaphores.push_back(s.done);
                 s.inFlight = fence;

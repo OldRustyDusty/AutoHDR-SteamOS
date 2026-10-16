@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HDR Ket</title>
+<style>
+  :root {
+    --bg: #0e1013; --panel: #171a1f; --line: #262b33; --text: #e8eaed; --muted: #8b939e;
+    --accent: #f5b942; --accent-ink: #1a1305; --good: #4cc38a; --bad: #e5484d; --track: #2a3039;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; }
+  header { display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+  header .game { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.on { background: var(--good); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .row { margin: 12px 0 4px; }
+  .row:first-of-type { margin-top: 2px; }
+  .label { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .label span:first-child { font-weight: 550; }
+  .value { font-variant-numeric: tabular-nums; color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  input[type=range] { width: 100%; height: 30px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; touch-action: pan-y; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--track); border-radius: 3px; }
+  input[type=range]::-moz-range-track { height: 6px; background: var(--track); border-radius: 3px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: 50%; background: var(--accent); border: 0; }
+  input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); border: 0; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+  .seg button { appearance: none; border: 0; background: transparent; color: var(--text); padding: 9px 4px; border-radius: 7px; font: inherit; font-size: 14px; cursor: pointer; }
+  .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .buttons { display: flex; gap: 8px; }
+  .buttons button { flex: 1; appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 11px; border-radius: 10px; font: inherit; cursor: pointer; }
+  .buttons button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+  .toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 8px; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat small { color: var(--muted); font-size: 11.5px; }
+  canvas { width: 100%; height: 120px; display: block; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .meta { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #2b313b; padding: 10px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); }
+  .toast.show { opacity: 1; }
+  @media (max-width: 380px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="dot" id="dot" title="Connection to the game"></span>
+    <h1>HDR Ket</h1>
+    <span class="game" id="game">connecting…</span>
+  </header>
+
+  <section>
+    <h2>Brightness</h2>
+    <div class="row">
+      <div class="label"><span>Peak brightness</span><span class="value" id="v-peak_nits"></span></div>
+      <input type="range" id="peak_nits" min="200" max="2000" step="10">
+      <div class="hint">Your display's real maximum. Use the test pattern to find it.</div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Middle grey</span><span class="value" id="v-middle_grey_nits"></span></div>
+      <input type="range" id="middle_grey_nits" min="10" max="80" step="0.5">
+      <div class="hint" id="h-grey">Overall brightness of the game.</div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Highlight expansion</span><span class="value" id="v-expansion"></span></div>
+      <input type="range" id="expansion" min="0" max="1" step="0.01">
+      <div class="hint">How far bright highlights reach toward peak.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Color</h2>
+    <div class="row">
+      <div class="label"><span>Content gamma</span><span class="hint" style="margin:0">how the game was mastered</span></div>
+      <div class="seg" id="eotf">
+        <button data-v="linear">Linear</button>
+        <button data-v="srgb">sRGB</button>
+        <button data-v="gamma22">2.2</button>
+        <button data-v="gamma24">2.4</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Saturation</span><span class="value" id="v-saturation"></span></div>
+      <input type="range" id="saturation" min="0" max="2" step="0.01">
+    </div>
+    <div class="row">
+      <div class="label"><span>Black floor</span><span class="value" id="v-black_floor"></span></div>
+      <input type="range" id="black_floor" min="0" max="0.1" step="0.001">
+      <div class="hint">Raise if the game's blacks look grey.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Measured on screen</h2>
+    <div class="stats">
+      <div class="stat"><b id="s-peak">–</b><small>peak nits</small></div>
+      <div class="stat"><b id="s-held">–</b><small>held peak</small></div>
+      <div class="stat"><b id="s-p99">–</b><small>99th pct</small></div>
+      <div class="stat"><b id="s-avg">–</b><small>average</small></div>
+    </div>
+    <canvas id="hist" aria-label="Brightness histogram"></canvas>
+    <div class="hint">Pixels by brightness. The amber line is your peak setting, the grey line is SDR white.</div>
+  </section>
+
+  <section>
+    <h2>Compare</h2>
+    <div class="seg" id="compare">
+      <button data-v="hdr">HDR</button>
+      <button data-v="split">Split</button>
+      <button data-v="sdr">SDR</button>
+    </div>
+    <div class="hint">Split shows SDR on the left half of the screen.</div>
+    <label class="toggle"><span>Brightness test pattern</span><input type="checkbox" id="pattern"></label>
+    <div class="hint">Bars at 5, 10, 25, 50, 100, 150, 200, 300, 400, 500, 600, 800, 1000, 1500 nits. Set peak to where they stop getting brighter.</div>
+  </section>
+
+  <section>
+    <details>
+      <summary>Advanced</summary>
+      <div class="row">
+        <div class="label"><span>Expansion starts at</span><span class="value" id="v-shoulder_start"></span></div>
+        <input type="range" id="shoulder_start" min="0" max="0.95" step="0.01">
+        <div class="hint">SDR brightness below this is left alone. Higher protects UI and skin tones.</div>
+      </div>
+      <div class="row">
+        <div class="label"><span>Expansion curve</span><span class="value" id="v-shoulder_pow"></span></div>
+        <input type="range" id="shoulder_pow" min="0.5" max="8" step="0.05">
+        <div class="hint">Higher keeps the boost to the very brightest pixels.</div>
+      </div>
+      <p class="meta" id="output"></p>
+    </details>
+  </section>
+
+  <div class="buttons">
+    <button id="reset">Reset</button>
+    <button id="save" class="primary">Save for this game</button>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const sliders = {
+  peak_nits:        v => `${Math.round(v)} nits`,
+  middle_grey_nits: v => `${(+v).toFixed(1)} nits`,
+  expansion:        v => `${Math.round(v * 100)}%`,
+  saturation:       v => `${Math.round(v * 100)}%`,
+  black_floor:      v => (+v).toFixed(3),
+  shoulder_start:   v => `${Math.round(v * 100)}%`,
+  shoulder_pow:     v => (+v).toFixed(2),
+};
+const $ = id => document.getElementById(id);
+let state = null, lastVersion = -1, dragging = null, pending = {}, sending = false, online = false;
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function setSeg(id, value) {
+  for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === value);
+}
+
+function greyHint(grey) {
+  $('h-grey').textContent = `Overall brightness. SDR white lands at ${Math.round(grey / 0.18)} nits.`;
+}
+
+function applyState(s) {
+  state = s;
+  $('game').textContent = s.game;
+  if (s.version !== lastVersion) {
+    lastVersion = s.version;
+    for (const k of Object.keys(sliders)) {
+      if (dragging === k || k in pending) continue;
+      $(k).value = s.settings[k];
+      $('v-' + k).textContent = sliders[k](s.settings[k]);
+    }
+    greyHint(s.settings.middle_grey_nits);
+    setSeg('eotf', s.settings.eotf);
+    setSeg('compare', s.settings.bypass ? 'sdr' : s.settings.split > 0 ? 'split' : 'hdr');
+    $('pattern').checked = s.settings.pattern;
+  }
+  const st = s.stats, o = s.output;
+  $('s-peak').textContent = st.frames ? st.peak : '–';
+  $('s-held').textContent = st.frames ? st.held_peak : '–';
+  $('s-p99').textContent = st.frames ? st.p99 : '–';
+  $('s-avg').textContent = st.frames ? Math.round(st.avg) : '–';
+  $('output').textContent = o.width ? `Game renders ${o.source} at ${o.width}×${o.height}; output ${o.format}, ${o.colorspace}.` : '';
+  drawHistogram(st);
+}
+
+function drawHistogram(st) {
+  const c = $('hist'), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const lo = st.hist_min_log2, hi = st.hist_max_log2, n = st.histogram.length;
+  const axisLo = Math.log2(1), axisHi = Math.log2(4000);   // show 1–4000 nits
+  const x = l2 => (l2 - axisLo) / (axisHi - axisLo) * w;
+  const max = Math.max(0.02, ...st.histogram);
+  const plotH = h - 16;
+  g.fillStyle = '#5b6573';
+  for (let i = 0; i < n; i++) {
+    const l2 = lo + (hi - lo) * i / (n - 1), bw = (hi - lo) / (n - 1);
+    const x0 = x(l2 - bw / 2), x1 = x(l2 + bw / 2);
+    if (x1 < 0 || x0 > w) continue;
+    const bh = Math.sqrt(st.histogram[i] / max) * plotH;   // sqrt so small tails show
+    g.fillRect(x0 + 0.5, plotH - bh, Math.max(1, x1 - x0 - 1), bh);
+  }
+  const mark = (nits, color) => { g.fillStyle = color; g.fillRect(Math.round(x(Math.log2(nits))) - 1, 0, 2, plotH); };
+  if (state) {
+    mark(state.settings.paper_white_nits, '#9aa3ae');
+    mark(state.settings.peak_nits, css.getPropertyValue('--accent'));
+  }
+  g.fillStyle = css.getPropertyValue('--muted'); g.font = '11px system-ui'; g.textBaseline = 'bottom';
+  for (const t of [1, 10, 100, 1000]) {
+    const tx = x(Math.log2(t));
+    g.textAlign = t === 1 ? 'left' : 'center';
+    g.fillText(t + '', tx, h);
+  }
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', body: new URLSearchParams(body),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function flush() {
+  if (sending || !Object.keys(pending).length) return;
+  sending = true;
+  const body = pending; pending = {};
+  try { applyState(await post('/api/settings', body)); }
+  catch { toast('Lost connection to the game'); }
+  sending = false;
+  if (Object.keys(pending).length) flush();
+}
+
+function set(key, value) { pending[key] = value; flush(); }
+
+for (const k of Object.keys(sliders)) {
+  const el = $(k);
+  el.addEventListener('input', () => {
+    dragging = k;
+    $('v-' + k).textContent = sliders[k](el.value);
+    if (k === 'middle_grey_nits') greyHint(+el.value);
+    set(k, el.value);
+  });
+  el.addEventListener('change', () => { dragging = null; });
+}
+$('eotf').addEventListener('click', e => {
+  const v = e.target.dataset?.v; if (!v) return;
+  setSeg('eotf', v); set('eotf', v);
+});
+$('compare').addEventListener('click', e => {
+  const v = e.target.dataset?.v; if (!v) return;
+  setSeg('compare', v);
+  set('bypass', v === 'sdr' ? 1 : 0);
+  set('split', v === 'split' ? 0.5 : 0);
+});
+$('pattern').addEventListener('change', e => set('pattern', e.target.checked ? 1 : 0));
+$('reset').addEventListener('click', async () => {
+  try { lastVersion = -1; applyState(await post('/api/reset', {})); toast('Reset to defaults (peak kept)'); }
+  catch { toast('Reset failed'); }
+});
+$('save').addEventListener('click', async () => {
+  try { const r = await post('/api/save', {}); toast(r.ok ? 'Saved — loads next time this game starts' : 'Save failed'); }
+  catch { toast('Save failed'); }
+});
+
+async function poll() {
+  try {
+    const r = await fetch('/api/state', { cache: 'no-store' });
+    applyState(await r.json());
+    if (!online) { online = true; $('dot').classList.add('on'); }
+  } catch {
+    if (online) { online = false; $('dot').classList.remove('on'); $('game').textContent = 'game not running'; }
+  }
+  setTimeout(poll, 250);
+}
+window.addEventListener('resize', () => state && drawHistogram(state.stats));
+// The server fills this in so the page opens with live values.
+const initial = /*HDRKET_STATE*/null;
+if (initial) { applyState(initial); online = true; $('dot').classList.add('on'); }
+setTimeout(poll, initial ? 250 : 0);
+</script>
+</body>
+</html>

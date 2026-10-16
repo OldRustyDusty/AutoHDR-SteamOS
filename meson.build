@@ -27,16 +27,24 @@ foreach v : shader_variants
                '--vn', v[1]] + v[2] + ['-o', '@OUTPUT@', '@INPUT@'])
 endforeach
 
+python = find_program('python3')
+ui_header = custom_target('ui_html',
+  input : 'ui/index.html',
+  output : 'ui_html.h',
+  command : [python, files('scripts/embed.py'), '@INPUT@', '@OUTPUT@', 'ui_html'])
+
 sources = files(
   'src/layer.cpp',
   'src/swapchain.cpp',
   'src/present.cpp',
   'src/formats.cpp',
+  'src/params.cpp',
+  'src/httpd.cpp',
   'src/log.cpp',
 )
 
 hdrket_lib = shared_library('hdrket',
-  sources, shader_headers,
+  sources, shader_headers, ui_header,
   dependencies : [vulkan_dep, thread_dep],
   cpp_args : ['-fvisibility=hidden', '-Wno-missing-field-initializers', '-DHDRKET_VERSION="' + meson.project_version() + '"'],
   # Steam's runtime container may carry an older libstdc++ than the host.

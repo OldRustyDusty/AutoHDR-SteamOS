@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Shared definitions for HDR Ket compute shaders.
 
-#define FLAG_SRGB_DECODE 1u
-#define FLAG_BYPASS      2u
+#define FLAG_BYPASS  2u
+#define FLAG_PATTERN 4u
+
+#define EOTF_SRGB    0u
+#define EOTF_GAMMA22 1u
+#define EOTF_GAMMA24 2u
+#define EOTF_LINEAR  3u
 
 // Must match ItmParams in params.hpp.
 layout(push_constant) uniform Params {
@@ -17,8 +22,13 @@ layout(push_constant) uniform Params {
     uint  flags;
     uint  width;
     uint  height;
-    float pad;
+    uint  eotf;
 } p;
+
+// Must match kHistogram* in params.hpp.
+#define HIST_BINS     64
+#define HIST_MIN_LOG2 -2.0
+#define HIST_MAX_LOG2 14.0
 
 const float SCRGB_REFERENCE_NITS = 80.0;  // scRGB 1.0
 const float PQ_MAX_NITS          = 10000.0;
@@ -29,17 +39,23 @@ float luminance709(vec3 c)
 }
 
 // Most PC games are authored on gamma 2.2 displays, so 2.2 is the default.
-// The piecewise sRGB curve lifts near-black; it's an advanced option.
-vec3 decodeGamma22(vec3 e)
-{
-    return pow(max(e, vec3(0.0)), vec3(2.2));
-}
-
+// The piecewise sRGB curve lifts near-black.
 vec3 decodeSRGB(vec3 e)
 {
     vec3 lo = e / 12.92;
     vec3 hi = pow((max(e, vec3(0.0)) + 0.055) / 1.055, vec3(2.4));
     return mix(hi, lo, lessThanEqual(e, vec3(0.04045)));
+}
+
+vec3 decodeSource(vec3 e, uint eotf)
+{
+    if (eotf == EOTF_SRGB)
+        return decodeSRGB(e);
+    if (eotf == EOTF_GAMMA24)
+        return pow(max(e, vec3(0.0)), vec3(2.4));
+    if (eotf == EOTF_LINEAR)
+        return e;
+    return pow(max(e, vec3(0.0)), vec3(2.2));
 }
 
 // ITU-R BT.2087 / BT.2020: linear BT.709 RGB to linear BT.2020 RGB.

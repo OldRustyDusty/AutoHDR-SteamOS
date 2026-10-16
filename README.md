@@ -5,9 +5,8 @@ Works below DXVK / vkd3d-proton / native Vulkan, so one code path covers
 D3D9 through D3D12 and native titles. No injection, no hooks into the game,
 no extra frame queuing.
 
-Status: **Sprint 1** — layer skeleton, swapchain format substitution, single
-fused compute pass with the five core knobs (set by environment variables for
-now; the config file and browser tuning UI come next).
+Status: layer, HDR10/scRGB swapchain substitution, one fused compute pass,
+live tuning page with a brightness readout, and per-game presets.
 
 ## How it works
 
@@ -44,21 +43,50 @@ The display path must offer HDR formats to the game:
   Proton games: `PROTON_ENABLE_WAYLAND=1`; Godot games: `--display-driver wayland`;
   or nest the game in `gamescope --hdr-enabled`.
 
-`HDRKET_LOG=debug` shows what was detected. If the log says
+## Tuning
+
+When a game starts with HDR Ket active, the log prints the tuning page address:
+
+```
+[hdrket info] tuning UI: http://192.168.0.130:7331
+```
+
+Open it on a phone or laptop. Every change applies on the next frame while the
+game stays full screen. **Save for this game** writes
+`~/.config/hdrket/presets/<game>.conf`, which loads automatically next time.
+
+| Control | What it does |
+|---|---|
+| Peak brightness | Your display's real maximum. Find it with the test pattern: the bar where brightness stops increasing. |
+| Middle grey | Overall brightness: where SDR 18% grey lands. SDR white sits at grey / 0.18. |
+| Highlight expansion | How far bright highlights reach toward peak. 0 = plain SDR in an HDR container. |
+| Content gamma | How the game was mastered: Linear, sRGB, 2.2 (most PC games), 2.4. |
+| Saturation, Black floor | Color intensity; crush raised blacks. |
+| Compare | HDR, Split (left half SDR), or SDR. |
+| Measured on screen | Live peak, 99th percentile and average brightness, plus a histogram. |
+
+The page is served on all interfaces so a phone can reach it.
+`HDRKET_BIND=127.0.0.1` keeps it local, `HDRKET_PORT` changes the port, and
+`HDRKET_UI=0` turns it off.
+
+## Logs
+
+Messages go to stderr and to `~/.local/state/hdrket/hdrket-<pid>.log` (Game Mode
+hides stderr). `HDRKET_LOG=debug` shows what was detected. If the log says
 `passthrough: no usable HDR surface format`, the point above applies.
 
-### Knobs (temporary environment variables)
+### Environment overrides
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `HDRKET_PEAK_NITS` | 1000 | Display peak brightness |
-| `HDRKET_PAPER_WHITE` | 200 | Brightness of SDR white / UI |
-| `HDRKET_EXPANSION` | 0.5 | 0 = SDR in an HDR container, 1 = SDR white reaches peak |
-| `HDRKET_SATURATION` | 1.0 | 1 = unchanged |
-| `HDRKET_BLACK_FLOOR` | 0 | Crush raised blacks (SDR-relative, e.g. 0.02) |
-| `HDRKET_SPLIT` | 0 | Show the left fraction of the screen as SDR reference (e.g. 0.5) |
-| `HDRKET_EOTF` | gamma 2.2 | `srgb` for the piecewise sRGB curve |
-| `HDRKET_OUTPUT` | auto (scRGB) | `scrgb`, `hdr10`, or `off` |
+Any preset key can be set as `HDRKET_<KEY>`, applied on top of the saved preset:
+`HDRKET_PEAK_NITS`, `HDRKET_MIDDLE_GREY_NITS`, `HDRKET_PAPER_WHITE_NITS`,
+`HDRKET_EXPANSION`, `HDRKET_SATURATION`, `HDRKET_BLACK_FLOOR`, `HDRKET_EOTF`
+(`linear`, `srgb`, `gamma22`, `gamma24`), `HDRKET_SPLIT`, `HDRKET_PATTERN`,
+`HDRKET_BYPASS`. Also `HDRKET_PRESET=<name>` picks a preset file, and
+`HDRKET_OUTPUT=hdr10|scrgb|off`.
+
+HDR10 is the default output: PQ values are absolute nits on every compositor.
+scRGB is relative on Wayland (KWin maps 1.0 to the desktop SDR brightness), so
+it is opt-in for now.
 
 ## Licensing
 
