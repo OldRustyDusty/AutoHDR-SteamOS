@@ -208,8 +208,9 @@ void     destroyDeviceResources(DeviceData& dev);
 void     setHdrMetadata(SwapchainData& sc, float peakNits, float paperWhiteNits);
 uint32_t findMemoryType(const DeviceData& dev, uint32_t typeBits, VkMemoryPropertyFlags want);
 
-// Analysis buffer: histogram bins, peak bits, sample count (uint32 each).
-constexpr VkDeviceSize kStatsBufferSize = (64 + 2) * sizeof(uint32_t);
+// Analysis buffer: histogram bins, output peak bits, sample count, content
+// peak bits (uint32 each). Layout matches `Stats` in itm.comp.
+constexpr VkDeviceSize kStatsBufferSize = (64 + 3) * sizeof(uint32_t);
 
 // present.cpp
 VkResult QueuePresentKHR(VkQueue, const VkPresentInfoKHR*);

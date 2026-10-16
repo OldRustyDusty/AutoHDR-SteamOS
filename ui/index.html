@@ -64,8 +64,9 @@
     <h2>Brightness</h2>
     <div class="row">
       <div class="label"><span>Peak brightness</span><span class="value" id="v-peak_nits"></span></div>
-      <input type="range" id="peak_nits" min="200" max="2000" step="10">
-      <div class="hint">Your display's real maximum. Use the test pattern to find it.</div>
+      <input type="range" id="peak_nits" min="200" max="4000" step="10">
+      <div class="hint" id="h-peak">Your display's real maximum. Use the test pattern to find it.</div>
+      <label class="toggle" style="margin-top:8px"><span>Peak for this game only</span><input type="checkbox" id="peak_override"></label>
     </div>
     <div class="row">
       <div class="label"><span>Middle grey</span><span class="value" id="v-middle_grey_nits"></span></div>
@@ -74,8 +75,18 @@
     </div>
     <div class="row">
       <div class="label"><span>Highlight expansion</span><span class="value" id="v-expansion"></span></div>
-      <input type="range" id="expansion" min="0" max="1" step="0.01">
-      <div class="hint">How far bright highlights reach toward peak.</div>
+      <input type="range" id="expansion" min="0" max="1.5" step="0.01">
+      <div class="hint">How far bright highlights reach toward peak. Above 100% they aim past it and the tone mapper rolls them back.</div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Tone mapping</span></div>
+      <div class="seg" id="tonemap">
+        <button data-v="off">Off</button>
+        <button data-v="clip">Clip</button>
+        <button data-v="map">Map</button>
+        <button data-v="adaptive">Adaptive</button>
+      </div>
+      <div class="hint">What happens above peak. Adaptive follows each scene's brightest point and compresses only what that scene needs.</div>
     </div>
   </section>
 
@@ -95,6 +106,11 @@
       <input type="range" id="saturation" min="0" max="2" step="0.01">
     </div>
     <div class="row">
+      <div class="label"><span>Gamut expansion</span><span class="value" id="v-gamut_expansion"></span></div>
+      <input type="range" id="gamut_expansion" min="0" max="1" step="0.01">
+      <div class="hint">Pushes saturated colors toward HDR's wider gamut. Greys and skin tones are protected. 20–40% is a good start.</div>
+    </div>
+    <div class="row">
       <div class="label"><span>Black floor</span><span class="value" id="v-black_floor"></span></div>
       <input type="range" id="black_floor" min="0" max="0.1" step="0.001">
       <div class="hint">Raise if the game's blacks look grey.</div>
@@ -109,6 +125,7 @@
       <div class="stat"><b id="s-p99">–</b><small>99th pct</small></div>
       <div class="stat"><b id="s-avg">–</b><small>average</small></div>
     </div>
+    <div class="hint" id="s-tonemap" style="margin:-2px 0 8px"></div>
     <canvas id="hist" aria-label="Brightness histogram"></canvas>
     <div class="hint">Pixels by brightness. The amber line is your peak setting, the grey line is SDR white.</div>
   </section>
@@ -122,7 +139,7 @@
     </div>
     <div class="hint">Split shows SDR on the left half of the screen.</div>
     <label class="toggle"><span>Brightness test pattern</span><input type="checkbox" id="pattern"></label>
-    <div class="hint">Bars at 5, 10, 25, 50, 100, 150, 200, 300, 400, 500, 600, 800, 1000, 1500 nits. Set peak to where they stop getting brighter.</div>
+    <div class="hint">Bars at 50, 100, 200, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 3000, 4000 nits. Set peak to where they stop getting brighter.</div>
   </section>
 
   <section>
@@ -137,6 +154,11 @@
         <div class="label"><span>Expansion curve</span><span class="value" id="v-shoulder_pow"></span></div>
         <input type="range" id="shoulder_pow" min="0.5" max="8" step="0.05">
         <div class="hint">Higher keeps the boost to the very brightest pixels.</div>
+      </div>
+      <div class="row">
+        <div class="label"><span>Adaptive release</span><span class="value" id="v-adapt_release"></span></div>
+        <input type="range" id="adapt_release" min="0.2" max="8" step="0.1">
+        <div class="hint">How slowly adaptive tone mapping relaxes after a bright scene. Longer is steadier.</div>
       </div>
       <p class="meta" id="output"></p>
     </details>
@@ -154,6 +176,8 @@ const sliders = {
   peak_nits:        v => `${Math.round(v)} nits`,
   middle_grey_nits: v => `${(+v).toFixed(1)} nits`,
   expansion:        v => `${Math.round(v * 100)}%`,
+  gamut_expansion:  v => `${Math.round(v * 100)}%`,
+  adapt_release:    v => `${(+v).toFixed(1)} s`,
   saturation:       v => `${Math.round(v * 100)}%`,
   black_floor:      v => (+v).toFixed(3),
   shoulder_start:   v => `${Math.round(v * 100)}%`,
@@ -187,14 +211,28 @@ function applyState(s) {
     }
     greyHint(s.settings.middle_grey_nits);
     setSeg('eotf', s.settings.eotf);
+    setSeg('tonemap', s.settings.tonemap);
     setSeg('compare', s.settings.bypass ? 'sdr' : s.settings.split > 0 ? 'split' : 'hdr');
     $('pattern').checked = s.settings.pattern;
+    $('peak_override').checked = s.settings.peak_override;
   }
   const st = s.stats, o = s.output;
   $('s-peak').textContent = st.frames ? st.peak : '–';
   $('s-held').textContent = st.frames ? st.held_peak : '–';
   $('s-p99').textContent = st.frames ? st.p99 : '–';
   $('s-avg').textContent = st.frames ? Math.round(st.avg) : '–';
+  const d = s.display;
+  $('h-peak').textContent = s.settings.peak_override
+    ? `This game's own peak on ${d.name}. Other games use the display's.`
+    : `Saved for this display (${d.name})` +
+      (d.edid_peak > 0 ? `, which reports ${d.edid_peak} nits.` : '. Use the test pattern to find its real maximum.');
+  const tm = s.settings.tonemap;
+  $('s-tonemap').textContent = !st.frames ? '' :
+    tm === 'adaptive' ? (st.tonemap_source ? `Adaptive: scene peaks at ${st.tonemap_source} nits, rolled off into ${s.settings.peak_nits}.`
+                                           : `Adaptive: scene fits within ${s.settings.peak_nits} nits, nothing compressed.`) :
+    tm === 'map' ? (st.tonemap_source ? `Map: ${st.tonemap_source} nits rolled off into ${s.settings.peak_nits}.` : 'Map: nothing above peak.') :
+    tm === 'clip' ? `Clip: anything above ${s.settings.peak_nits} nits is cut off.` :
+    `Off: brightest content ${st.content_peak} nits is sent as is.`;
   $('output').textContent = o.width ? `Game renders ${o.source} at ${o.width}×${o.height}; output ${o.format}, ${o.colorspace}.` : '';
   drawHistogram(st);
 }
@@ -266,12 +304,17 @@ $('eotf').addEventListener('click', e => {
   const v = e.target.dataset?.v; if (!v) return;
   setSeg('eotf', v); set('eotf', v);
 });
+$('tonemap').addEventListener('click', e => {
+  const v = e.target.dataset?.v; if (!v) return;
+  setSeg('tonemap', v); set('tonemap', v);
+});
 $('compare').addEventListener('click', e => {
   const v = e.target.dataset?.v; if (!v) return;
   setSeg('compare', v);
   set('bypass', v === 'sdr' ? 1 : 0);
   set('split', v === 'split' ? 0.5 : 0);
 });
+$('peak_override').addEventListener('change', e => set('peak_override', e.target.checked ? 1 : 0));
 $('pattern').addEventListener('change', e => set('pattern', e.target.checked ? 1 : 0));
 $('reset').addEventListener('click', async () => {
   try { lastVersion = -1; applyState(await post('/api/reset', {})); toast('Reset to defaults (peak kept)'); }

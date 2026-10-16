@@ -57,13 +57,27 @@ game stays full screen. **Save for this game** writes
 
 | Control | What it does |
 |---|---|
-| Peak brightness | Your display's real maximum. Find it with the test pattern: the bar where brightness stops increasing. |
+| Peak brightness | Your display's real maximum. Find it with the test pattern: the bar where brightness stops increasing. Saved per display; tick *Peak for this game only* to give one game its own value on this display. |
 | Middle grey | Overall brightness: where SDR 18% grey lands. SDR white sits at grey / 0.18. |
-| Highlight expansion | How far bright highlights reach toward peak. 0 = plain SDR in an HDR container. |
+| Highlight expansion | How far bright highlights reach toward peak. 0 = plain SDR in an HDR container; above 100% they aim past peak and the tone mapper rolls them back. |
+| Tone mapping | What happens above peak. **Off**: sent as is. **Clip**: cut at peak, hue kept. **Map**: BT.2390 roll-off from a fixed range. **Adaptive**: the same roll-off, following each scene's brightest point (fast to react, slow to relax) so dim scenes are untouched. |
 | Content gamma | How the game was mastered: Linear, sRGB, 2.2 (most PC games), 2.4. |
-| Saturation, Black floor | Color intensity; crush raised blacks. |
+| Saturation | Color intensity around each pixel's own brightness. |
+| Gamut expansion | Pushes saturated colors toward BT.2020. Greys and low-chroma tones (skin) are protected; brightness is kept. |
+| Black floor | Crush raised blacks. |
 | Compare | HDR, Split (left half SDR), or SDR. |
-| Measured on screen | Live peak, 99th percentile and average brightness, plus a histogram. |
+| Measured on screen | Live peak, 99th percentile and average brightness, what the tone mapper is doing, and a histogram. |
+
+### Presets and displays
+
+- `~/.config/hdrket/displays/<display>.conf` holds each display's peak. The
+  display is identified from its EDID (name plus a checksum), so two TVs behind
+  the same AV receiver still get separate profiles. If the TV reports its peak
+  in the EDID, that is the starting value. `HDRKET_DISPLAY=<name>` forces a
+  profile.
+- `~/.config/hdrket/presets/<game>.conf` holds the game's picture settings and
+  any per-display peak overrides (`peak_nits@<display> = 830`). A plain
+  `peak_nits` in a game preset applies on every display.
 
 The page is served on all interfaces so a phone can reach it.
 `HDRKET_BIND=127.0.0.1` keeps it local, `HDRKET_PORT` changes the port, and
@@ -80,7 +94,9 @@ hides stderr). `HDRKET_LOG=debug` shows what was detected. If the log says
 Any preset key can be set as `HDRKET_<KEY>`, applied on top of the saved preset:
 `HDRKET_PEAK_NITS`, `HDRKET_MIDDLE_GREY_NITS`, `HDRKET_PAPER_WHITE_NITS`,
 `HDRKET_EXPANSION`, `HDRKET_SATURATION`, `HDRKET_BLACK_FLOOR`, `HDRKET_EOTF`
-(`linear`, `srgb`, `gamma22`, `gamma24`), `HDRKET_SPLIT`, `HDRKET_PATTERN`,
+(`linear`, `srgb`, `gamma22`, `gamma24`), `HDRKET_TONEMAP` (`off`, `clip`,
+`map`, `adaptive`), `HDRKET_GAMUT_EXPANSION`, `HDRKET_ADAPT_RELEASE` (seconds),
+`HDRKET_SPLIT`, `HDRKET_PATTERN`,
 `HDRKET_BYPASS`. Also `HDRKET_PRESET=<name>` picks a preset file, and
 `HDRKET_OUTPUT=hdr10|scrgb|off`.
 
@@ -92,4 +108,5 @@ it is opt-in for now.
 
 MIT. Do not copy code from Special K (GPLv3) or Lilium's ReShade HDR shaders
 (GPLv3). The highlight expansion follows the approach of PumboAutoHDR (MIT);
-layer plumbing follows vkBasalt (zlib).
+layer plumbing follows vkBasalt (zlib). Tone mapping implements the ITU-R BT.2390
+EETF from the published recommendation.

@@ -13,6 +13,7 @@
 #include "itm_scrgb_spv.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -20,17 +21,45 @@ namespace hdrket {
 
 namespace {
 
-// Folds one frame's histogram into the stats the UI shows.
+constexpr float kAdaptAttackSeconds = 0.2f;
+
+// Folds one frame's histogram into the stats the UI shows, and runs the
+// adaptive tone mapper's scene-peak follower.
 struct StatsAccumulator {
     Stats stats;
 
-    void addFrame(const uint32_t* raw)
+    // Adaptive tone mapping tracks the scene peak in log2 nits: it rises
+    // quickly when something bright appears (so highlights don't clip for
+    // long) and relaxes slowly afterwards (so it doesn't pump on cuts).
+    float adaptiveLog2   = 0;
+    float adaptedForPeak = 0;
+    std::chrono::steady_clock::time_point lastFrame{};
+
+    void addFrame(const uint32_t* raw, const Settings& settings)
     {
         const uint32_t samples = raw[kHistogramBins + 1];
         if (!samples)
             return;
-        float peak;
+        float peak, contentPeak;
         std::memcpy(&peak, &raw[kHistogramBins], sizeof(peak));
+        std::memcpy(&contentPeak, &raw[kHistogramBins + 2], sizeof(contentPeak));
+
+        auto  now = std::chrono::steady_clock::now();
+        float dt  = lastFrame.time_since_epoch().count() ? std::chrono::duration<float>(now - lastFrame).count() : 0.0f;
+        dt        = std::min(dt, 0.25f);
+        lastFrame = now;
+        // Below the display peak nothing needs compressing.
+        float target = std::log2(std::max(contentPeak, settings.peakNits));
+        // A new peak setting is a new display, not a scene change: no release.
+        if (adaptiveLog2 <= 0 || settings.peakNits != adaptedForPeak) {
+            // Frames still in flight were rendered with the old settings, so
+            // start from the peak and let the fast attack find the scene.
+            adaptiveLog2   = std::log2(settings.peakNits);
+            adaptedForPeak = settings.peakNits;
+        }
+        float tau = target > adaptiveLog2 ? kAdaptAttackSeconds : settings.adaptRelease;
+        adaptiveLog2 += (target - adaptiveLog2) * (1.0f - std::exp(-dt / tau));
+        stats.contentPeakNits = contentPeak;
 
         double weighted = 0, cumulative = 0;
         float  p99      = 0;
@@ -58,6 +87,20 @@ struct StatsAccumulator {
 };
 
 StatsAccumulator g_accumulator; // guarded by the global layer lock
+
+// Range the tone mapper compresses from, for this frame.
+float tonemapSourceNits(const Settings& s)
+{
+    switch (s.tonemap) {
+    case Tonemap::Map:
+        // Expansion target plus headroom for saturation/gamut overshoot.
+        return std::max(expansionTargetNits(s), s.peakNits) * 1.25f;
+    case Tonemap::Adaptive:
+        return g_accumulator.adaptiveLog2 > 0 ? std::exp2(g_accumulator.adaptiveLog2) : s.peakNits;
+    default:
+        return s.peakNits;
+    }
+}
 
 } // namespace
 
@@ -296,8 +339,14 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
             if (!fence)
                 active.clear();
 
-            const Settings  settings = currentSettings();
-            const ItmParams params   = toPushConstants(settings);
+            const Settings settings = currentSettings();
+            ItmParams      params   = toPushConstants(settings);
+            params.sourcePeakNits   = tonemapSourceNits(settings);
+            g_accumulator.stats.tonemapSourceNits =
+                (settings.tonemap == Tonemap::Map || settings.tonemap == Tonemap::Adaptive) &&
+                        params.sourcePeakNits > settings.peakNits
+                    ? params.sourcePeakNits
+                    : 0.0f;
             std::vector<VkCommandBuffer> cmds;
             for (auto [sc, index] : active) {
                 ImageSlot& s = sc->slots[index];
@@ -307,7 +356,7 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
                 }
                 // That frame is done: harvest its histogram, then clear for reuse.
                 if (s.statsPending) {
-                    g_accumulator.addFrame(static_cast<const uint32_t*>(s.statsMapped));
+                    g_accumulator.addFrame(static_cast<const uint32_t*>(s.statsMapped), settings);
                     publishStats(g_accumulator.stats);
                     s.statsPending = false;
                 }

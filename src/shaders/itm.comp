@@ -3,9 +3,14 @@
 // HDR Ket: the one fused pass. Reads the app's SDR image, writes the HDR
 // swapchain image. No chain, no plugins (requirement R3).
 //
+// Order: decode -> black floor -> highlight expansion -> saturation ->
+// gamut expansion (into BT.2020) -> tone mapping to the display peak ->
+// encode. Everything after decoding happens in linear light.
+//
 // The highlight expansion is luminance-based and additive above a shoulder,
 // after the approach of PumboAutoHDR by Filippo Tarpini (MIT). Hue is kept by
-// scaling RGB with a single luminance ratio.
+// scaling RGB with a single luminance ratio. Tone mapping is the BT.2390 EETF
+// applied to max(R,G,B), so it also preserves hue.
 
 #version 450
 #extension GL_GOOGLE_include_directive : require
@@ -25,13 +30,15 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dstImage;
 // from one pixel in every 8x8 block. Read back by the CPU a frame later.
 layout(set = 0, binding = 2, std430) buffer Stats {
     uint histogram[HIST_BINS];
-    uint peakBits;   // float bits of the brightest sample (nits)
+    uint peakBits;        // float bits of the brightest output sample (nits)
     uint samples;
+    uint contentPeakBits; // brightest sample before tone mapping (drives adaptive mode)
 } stats;
 
-void recordStats(vec3 nits)
+void recordStats(vec3 nits, float contentPeak)
 {
-    float level = max(nits.r, max(nits.g, nits.b));
+    atomicMax(stats.contentPeakBits, floatBitsToUint(max(contentPeak, 0.0)));
+    float level = max3(nits);
     float t     = (log2(max(level, 1e-4)) - HIST_MIN_LOG2) / (HIST_MAX_LOG2 - HIST_MIN_LOG2);
     uint  bin   = uint(clamp(t, 0.0, 1.0) * float(HIST_BINS - 1) + 0.5);
     atomicAdd(stats.histogram[bin], 1u);
@@ -51,9 +58,10 @@ vec3 inverseToneMap(vec3 c)
         y = yf;
     }
 
-    // Expansion: SDR white climbs from paper white toward display peak.
+    // Expansion: SDR white climbs from paper white toward display peak, or
+    // past it (expansion > 1) for the tone mapper to bring back.
     float peakRel = max(p.peakNits / p.paperWhiteNits, 1.0);
-    float whiteTo = mix(1.0, peakRel, clamp(p.expansion, 0.0, 1.0));
+    float whiteTo = mix(1.0, peakRel, clamp(p.expansion, 0.0, 1.5));
     float start   = clamp(p.shoulderStart, 0.0, 0.99);
     float t       = clamp((y - start) / (1.0 - start), 0.0, 1.0);
     float yOut    = y + pow(t, max(p.shoulderPow, 0.01)) * (whiteTo - 1.0);
@@ -78,16 +86,32 @@ void main()
     int  splitPx   = int(p.splitX * float(p.width));
     bool reference = (p.flags & FLAG_BYPASS) != 0u || pos.x < splitPx;
 
-    vec3 rel  = reference ? sdr : inverseToneMap(sdr);
-    vec3 nits = rel * p.paperWhiteNits;
+    // Linear BT.2020 nits from here on.
+    vec3  nits;
+    float contentPeak;
+    if (reference) {
+        nits        = bt709ToBt2020(sdr * p.paperWhiteNits);
+        contentPeak = max3(nits);
+    } else {
+        vec3 c709   = inverseToneMap(sdr) * p.paperWhiteNits;
+        nits        = max(expandGamut(c709, p.gamutExpansion), vec3(0.0));
+        contentPeak = max3(nits);
 
-    // Hue-preserving limit at the display peak.
-    float m = max(nits.r, max(nits.g, nits.b));
-    if (m > p.peakNits)
-        nits *= p.peakNits / m;
+        if (p.tonemap == TONEMAP_MAP || p.tonemap == TONEMAP_ADAPTIVE) {
+            float mapped = bt2390Eetf(contentPeak, p.sourcePeakNits, p.peakNits);
+            if (contentPeak > 1e-6)
+                nits *= mapped / contentPeak;
+        }
+    }
+    // Clip (and the safety net after mapping): hue-preserving clamp at peak.
+    if (p.tonemap != TONEMAP_OFF) {
+        float m = max3(nits);
+        if (m > p.peakNits)
+            nits *= p.peakNits / m;
+    }
 
     if ((pos.x & 7) == 0 && (pos.y & 7) == 0)
-        recordStats(nits);
+        recordStats(nits, contentPeak);
 
     if (p.splitX > 0.0 && abs(pos.x - splitPx) < 2)
         nits = vec3(p.paperWhiteNits * 0.5);
@@ -95,8 +119,8 @@ void main()
     // Calibration pattern: white bars at fixed brightness, dimmest on the
     // left. Where neighbouring bars stop looking different is the real peak.
     if ((p.flags & FLAG_PATTERN) != 0u && pos.y < int(p.height) * 35 / 100) {
-        const float steps[14] = float[](5.0, 10.0, 25.0, 50.0, 100.0, 150.0, 200.0, 300.0,
-                                        400.0, 500.0, 600.0, 800.0, 1000.0, 1500.0);
+        const float steps[14] = float[](50.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 750.0,
+                                        1000.0, 1250.0, 1500.0, 2000.0, 3000.0, 4000.0);
         float u   = float(pos.x) / float(p.width) * 14.0;
         int   bar = min(int(u), 13);
         bool  gap = fract(u) < 0.08 || pos.y < int(p.height) * 3 / 100;
@@ -104,9 +128,9 @@ void main()
     }
 
 #ifdef OUT_HDR10
-    vec3 outRgb = pqEncode(max(bt709ToBt2020(nits), vec3(0.0)));
+    vec3 outRgb = pqEncode(max(nits, vec3(0.0)));
 #else
-    vec3 outRgb = nits / SCRGB_REFERENCE_NITS;
+    vec3 outRgb = bt2020ToBt709(nits) / SCRGB_REFERENCE_NITS; // negative = wider than BT.709
 #endif
     imageStore(dstImage, pos, vec4(outRgb, 1.0));
 }

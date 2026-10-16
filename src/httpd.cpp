@@ -61,17 +61,25 @@ std::string stateJson()
     j += "\"version\":" + std::to_string(settingsVersion()) + ",";
     j += "\"settings\":{";
     j += "\"peak_nits\":" + fmt("%.0f", s.peakNits) + ",";
+    j += std::string("\"peak_override\":") + (s.peakOverride ? "true" : "false") + ",";
     j += "\"middle_grey_nits\":" + fmt("%.1f", s.greyNits) + ",";
     j += "\"paper_white_nits\":" + fmt("%.0f", s.paperWhiteNits()) + ",";
     j += "\"expansion\":" + fmt("%.3f", s.expansion) + ",";
     j += "\"saturation\":" + fmt("%.3f", s.saturation) + ",";
     j += "\"black_floor\":" + fmt("%.4f", s.blackFloor) + ",";
     j += std::string("\"eotf\":\"") + settingsEotfName(s.eotf) + "\",";
+    j += std::string("\"tonemap\":\"") + settingsTonemapName(s.tonemap) + "\",";
+    j += "\"gamut_expansion\":" + fmt("%.3f", s.gamutExpansion) + ",";
+    j += "\"adapt_release\":" + fmt("%.2f", s.adaptRelease) + ",";
     j += "\"shoulder_start\":" + fmt("%.3f", s.shoulderStart) + ",";
     j += "\"shoulder_pow\":" + fmt("%.3f", s.shoulderPow) + ",";
     j += "\"split\":" + fmt("%.3f", s.split) + ",";
     j += std::string("\"pattern\":") + (s.pattern ? "true" : "false") + ",";
     j += std::string("\"bypass\":") + (s.bypass ? "true" : "false");
+    j += "},\"display\":{";
+    j += "\"name\":\"" + jsonEscape(displayInfo().name) + "\",";
+    j += "\"key\":\"" + jsonEscape(displayInfo().key) + "\",";
+    j += "\"edid_peak\":" + fmt("%.0f", displayInfo().edidPeak);
     j += "},\"output\":{";
     j += "\"format\":\"" + jsonEscape(sc.outputFormat) + "\",";
     j += "\"colorspace\":\"" + jsonEscape(sc.outputColorSpace) + "\",";
@@ -82,6 +90,8 @@ std::string stateJson()
     j += "\"peak\":" + fmt("%.0f", st.framePeakNits) + ",";
     j += "\"p99\":" + fmt("%.0f", st.p99Nits) + ",";
     j += "\"held_peak\":" + fmt("%.0f", st.heldPeakNits) + ",";
+    j += "\"content_peak\":" + fmt("%.0f", st.contentPeakNits) + ",";
+    j += "\"tonemap_source\":" + fmt("%.0f", st.tonemapSourceNits) + ",";
     j += "\"frames\":" + std::to_string(st.frames) + ",";
     j += "\"histogram\":[";
     for (int i = 0; i < kHistogramBins; i++)
@@ -199,7 +209,9 @@ void handle(int fd)
         respond(fd, 200, json, stateJson());
     } else if (path == "/api/reset") {
         Settings defaults;
-        defaults.peakNits = currentSettings().peakNits; // the display didn't change
+        Settings now           = currentSettings();
+        defaults.peakNits     = now.peakNits; // the display didn't change
+        defaults.peakOverride = now.peakOverride;
         updateSettings(defaults);
         respond(fd, 200, json, stateJson());
     } else if (path == "/api/save") {
