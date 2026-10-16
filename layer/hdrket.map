@@ -1,0 +1,7 @@
+{
+  global:
+    hdrket_GetInstanceProcAddr;
+    hdrket_GetDeviceProcAddr;
+  local:
+    *;
+};

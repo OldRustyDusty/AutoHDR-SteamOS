@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: MIT
+//
+// HDR Ket: the one fused pass. Reads the app's SDR image, writes the HDR
+// swapchain image. No chain, no plugins (requirement R3).
+//
+// The highlight expansion is luminance-based and additive above a shoulder,
+// after the approach of PumboAutoHDR by Filippo Tarpini (MIT). Hue is kept by
+// scaling RGB with a single luminance ratio.
+
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "common.glsl"
+
+layout(set = 0, binding = 0) uniform sampler2D srcImage;
+#ifdef OUT_HDR10
+layout(set = 0, binding = 1, rgb10_a2) uniform writeonly image2D dstImage;
+#else
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dstImage;
+#endif
+
+// SDR-relative linear BT.709 in, paper-white-relative linear BT.709 out.
+vec3 inverseToneMap(vec3 c)
+{
+    float y = luminance709(c);
+
+    // Black floor: games with raised blacks get remapped so floor -> 0.
+    if (p.blackFloor > 0.0 && y > 0.0) {
+        float yf = max(y - p.blackFloor, 0.0) / (1.0 - p.blackFloor);
+        c *= yf / y;
+        y = yf;
+    }
+
+    // Expansion: SDR white climbs from paper white toward display peak.
+    float peakRel = max(p.peakNits / p.paperWhiteNits, 1.0);
+    float whiteTo = mix(1.0, peakRel, clamp(p.expansion, 0.0, 1.0));
+    float start   = clamp(p.shoulderStart, 0.0, 0.99);
+    float t       = clamp((y - start) / (1.0 - start), 0.0, 1.0);
+    float yOut    = y + pow(t, max(p.shoulderPow, 0.01)) * (whiteTo - 1.0);
+    if (y > 1e-6)
+        c *= yOut / y;
+
+    // Saturation around the pixel's own luminance; > 1 can leave BT.709.
+    float y2 = luminance709(c);
+    c = vec3(y2) + (c - vec3(y2)) * p.saturation;
+    return c;
+}
+
+void main()
+{
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (pos.x >= int(p.width) || pos.y >= int(p.height))
+        return;
+
+    vec3 encoded = clamp(texelFetch(srcImage, pos, 0).rgb, 0.0, 1.0);
+    vec3 sdr     = (p.flags & FLAG_SRGB_DECODE) != 0u ? decodeSRGB(encoded) : decodeGamma22(encoded);
+
+    int  splitPx   = int(p.splitX * float(p.width));
+    bool reference = (p.flags & FLAG_BYPASS) != 0u || pos.x < splitPx;
+
+    vec3 rel  = reference ? sdr : inverseToneMap(sdr);
+    vec3 nits = rel * p.paperWhiteNits;
+
+    // Hue-preserving limit at the display peak.
+    float m = max(nits.r, max(nits.g, nits.b));
+    if (m > p.peakNits)
+        nits *= p.peakNits / m;
+
+    if (p.splitX > 0.0 && abs(pos.x - splitPx) < 2)
+        nits = vec3(p.paperWhiteNits * 0.5);
+
+#ifdef OUT_HDR10
+    vec3 outRgb = pqEncode(max(bt709ToBt2020(nits), vec3(0.0)));
+#else
+    vec3 outRgb = nits / SCRGB_REFERENCE_NITS;
+#endif
+    imageStore(dstImage, pos, vec4(outRgb, 1.0));
+}
