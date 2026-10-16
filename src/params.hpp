@@ -83,13 +83,21 @@ float expansionTargetNits(const Settings& s);
 
 // Live settings shared between the render thread and the tuning UI.
 Settings currentSettings();
-void     updateSettings(const Settings& s);
+// userChange: an edit from the UI or plugin; it is saved to the game's preset
+// automatically a moment later.
+void     updateSettings(const Settings& s, bool userChange = false);
 uint64_t settingsVersion(); // bumps on every change
 
 // Per-game presets: ~/.config/hdrket/presets/<game>.conf (picture settings).
 // Per-display profiles: ~/.config/hdrket/displays/<display>.conf (peak).
 const std::string& gameKey();
 bool               savePreset(std::string* pathOut);
+uint32_t           steamAppId(); // 0 outside Steam; non-Steam shortcuts give their shortcut id
+
+// The display's own peak (its profile, else EDID, else the default), used by
+// every game without a peak override. Setting it saves the display profile.
+float displayDefaultPeak();
+bool  setDisplayDefaultPeak(float nits);
 
 struct DisplayInfo {
     std::string key;       // profile file name: <name>-<edid crc>

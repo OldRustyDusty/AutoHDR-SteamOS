@@ -15,6 +15,28 @@ HDR (scRGB fp16 by default, or HDR10 PQ) and hands the game "shadow" images in
 the format it asked for. At present time one compute dispatch reads the
 game's frame, expands it to HDR, and writes the real swapchain image.
 
+## Decky plugin (Game Mode)
+
+The easiest way to use HDR Ket on Bazzite, SteamOS or a Steam Deck. The plugin
+installs the Vulkan layer into `~/.local` and adds an **HDR Ket** panel to the
+quick access menu:
+
+- **Per game**: open a game's library page (or start it) and switch HDR Ket on.
+  This adds `ENABLE_HDRKET=1` to the game's launch options and leaves the rest
+  of them alone. All the picture settings for that game are in the same panel,
+  live while it runs, and saved automatically. *Reset to defaults* is at the
+  bottom.
+- **Per display**: the first time the panel opens, it reads the display's peak
+  brightness from its EDID (if reported) and asks you to confirm or set it.
+  *Change default peak* in the panel changes it later. A game can still use
+  its own peak.
+- The phone page (`http://<this machine>:7331`) keeps working alongside it.
+
+Build the plugin zip with `scripts/package-decky.sh` (output in `out/`).
+Install it with Decky's developer "Install plugin from ZIP", or copy
+`out/hdrket` into `~/homebrew/plugins/` (root-owned) and restart
+`plugin_loader`.
+
 ## Build and install (Bazzite / Fedora)
 
 ```bash
@@ -52,8 +74,8 @@ When a game starts with HDR Ket active, the log prints the tuning page address:
 ```
 
 Open it on a phone or laptop. Every change applies on the next frame while the
-game stays full screen. **Save for this game** writes
-`~/.config/hdrket/presets/<game>.conf`, which loads automatically next time.
+game stays full screen. Changes save automatically to
+`~/.config/hdrket/presets/steam-<appid>.conf` and load next time the game starts.
 
 | Control | What it does |
 |---|---|
@@ -76,7 +98,8 @@ game stays full screen. **Save for this game** writes
   the same AV receiver still get separate profiles. If the TV reports its peak
   in the EDID, that is the starting value. `HDRKET_DISPLAY=<name>` forces a
   profile.
-- `~/.config/hdrket/presets/<game>.conf` holds the game's picture settings and
+- `~/.config/hdrket/presets/steam-<appid>.conf` (or `<executable>.conf` outside
+  Steam) holds the game's picture settings and
   any per-display peak overrides (`peak_nits@<display> = 830`). A plain
   `peak_nits` in a game preset applies on every display.
 

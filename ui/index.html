@@ -170,9 +170,9 @@
     </details>
   </section>
 
+  <p class="hint" style="text-align:center;margin:0 0 10px">Changes save automatically for this game.</p>
   <div class="buttons">
-    <button id="reset">Reset</button>
-    <button id="save" class="primary">Save for this game</button>
+    <button id="reset">Reset to defaults</button>
   </div>
 </main>
 <div class="toast" id="toast"></div>
@@ -327,12 +327,9 @@ $('compare').addEventListener('click', e => {
 $('peak_override').addEventListener('change', e => set('peak_override', e.target.checked ? 1 : 0));
 $('pattern').addEventListener('change', e => set('pattern', e.target.checked ? 1 : 0));
 $('reset').addEventListener('click', async () => {
-  try { lastVersion = -1; applyState(await post('/api/reset', {})); toast('Reset to defaults (peak kept)'); }
+  if (!confirm('Reset this game to the default settings?')) return;
+  try { lastVersion = -1; applyState(await post('/api/reset', {})); toast('Reset to defaults'); }
   catch { toast('Reset failed'); }
-});
-$('save').addEventListener('click', async () => {
-  try { const r = await post('/api/save', {}); toast(r.ok ? 'Saved — loads next time this game starts' : 'Save failed'); }
-  catch { toast('Save failed'); }
 });
 
 async function poll() {

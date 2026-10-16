@@ -1,0 +1,11 @@
+{
+  "name": "HDR Ket",
+  "author": "Zack",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["hdr", "display", "graphics"],
+    "description": "SDR to HDR for every game: per-game profiles, adaptive tone mapping, gamut expansion and per-display peak brightness. Tune from Game Mode or your phone.",
+    "image": ""
+  }
+}

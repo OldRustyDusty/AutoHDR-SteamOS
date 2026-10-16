@@ -58,6 +58,8 @@ std::string stateJson()
 
     std::string j = "{";
     j += "\"game\":\"" + jsonEscape(gameKey()) + "\",";
+    j += "\"appid\":" + std::to_string(steamAppId()) + ",";
+    j += std::string("\"layer_version\":\"") + HDRKET_VERSION + "\",";
     j += "\"version\":" + std::to_string(settingsVersion()) + ",";
     j += "\"settings\":{";
     j += "\"peak_nits\":" + fmt("%.0f", s.peakNits) + ",";
@@ -80,7 +82,8 @@ std::string stateJson()
     j += "},\"display\":{";
     j += "\"name\":\"" + jsonEscape(displayInfo().name) + "\",";
     j += "\"key\":\"" + jsonEscape(displayInfo().key) + "\",";
-    j += "\"edid_peak\":" + fmt("%.0f", displayInfo().edidPeak);
+    j += "\"edid_peak\":" + fmt("%.0f", displayInfo().edidPeak) + ",";
+    j += "\"default_peak\":" + fmt("%.0f", displayDefaultPeak());
     j += "},\"output\":{";
     j += "\"format\":\"" + jsonEscape(sc.outputFormat) + "\",";
     j += "\"colorspace\":\"" + jsonEscape(sc.outputColorSpace) + "\",";
@@ -135,7 +138,7 @@ void applyForm(const std::string& body)
             break;
         pos = amp + 1;
     }
-    updateSettings(s);
+    updateSettings(s, true);
 }
 
 void sendAll(int fd, const std::string& data)
@@ -212,12 +215,16 @@ void handle(int fd)
         applyForm(body);
         respond(fd, 200, json, stateJson());
     } else if (path == "/api/reset") {
+        // Everything back to defaults, peak back to the display's own.
         Settings defaults;
-        Settings now           = currentSettings();
-        defaults.peakNits     = now.peakNits; // the display didn't change
-        defaults.peakOverride = now.peakOverride;
-        updateSettings(defaults);
+        defaults.peakNits = displayDefaultPeak();
+        updateSettings(defaults, true);
         respond(fd, 200, json, stateJson());
+    } else if (path == "/api/display_peak") {
+        // Body: nits=750. Changes this display's default for every game.
+        size_t at = body.find("nits=");
+        bool   ok = at != std::string::npos && setDisplayDefaultPeak(std::strtof(body.c_str() + at + 5, nullptr));
+        respond(fd, ok ? 200 : 400, json, ok ? stateJson() : "{\"ok\":false}");
     } else if (path == "/api/save") {
         std::string where;
         bool        ok = savePreset(&where);

@@ -19,7 +19,9 @@
 #include <mutex>
 #include <sstream>
 #include <strings.h>
+#include <chrono>
 #include <sys/stat.h>
+#include <thread>
 #include <unistd.h>
 
 namespace hdrket {
@@ -32,6 +34,9 @@ Stats                 g_stats;
 SwapchainInfo         g_swapchain;
 std::atomic<uint64_t> g_version{1};
 std::atomic<float>    g_displayPeak{1000.0f}; // this display's base peak (EDID or profile)
+// Autosave: the version of the last user edit, and when it happened.
+std::atomic<uint64_t> g_dirtyVersion{0};
+std::atomic<int64_t>  g_lastEditNs{0};
 
 const char* eotfName(Eotf e)
 {
@@ -290,11 +295,68 @@ Settings currentSettings()
     return g_settings;
 }
 
-void updateSettings(const Settings& s)
+void updateSettings(const Settings& s, bool userChange)
 {
     std::lock_guard l(g_lock);
     g_settings = clamped(s);
-    g_version++;
+    uint64_t v = ++g_version;
+    if (userChange) {
+        g_dirtyVersion = v;
+        g_lastEditNs   = std::chrono::steady_clock::now().time_since_epoch().count();
+    }
+}
+
+// Saves the game's preset once edits have paused for a moment, so dragging a
+// slider writes once, not sixty times a second.
+static void autosaveLoop()
+{
+    uint64_t saved = 0;
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        uint64_t dirty = g_dirtyVersion.load();
+        if (dirty == saved)
+            continue;
+        int64_t quietNs = std::chrono::steady_clock::now().time_since_epoch().count() - g_lastEditNs.load();
+        if (quietNs < 800'000'000)
+            continue;
+        if (savePreset(nullptr))
+            saved = dirty;
+        else
+            HK_WARN("autosave failed for %s", gameKey().c_str());
+    }
+}
+
+uint32_t steamAppId()
+{
+    if (const char* a = std::getenv("SteamAppId"); a && std::strtoull(a, nullptr, 10) > 0)
+        return uint32_t(std::strtoull(a, nullptr, 10));
+    // Non-Steam shortcuts: SteamGameId is the 64-bit game id, app id on top.
+    if (const char* g = std::getenv("SteamGameId"); g && *g) {
+        unsigned long long id = std::strtoull(g, nullptr, 10);
+        return uint32_t(id > 0xFFFFFFFFull ? id >> 32 : id);
+    }
+    return 0;
+}
+
+float displayDefaultPeak()
+{
+    return g_displayPeak.load();
+}
+
+static bool saveDisplayProfile(float peakNits);
+
+bool setDisplayDefaultPeak(float nits)
+{
+    nits = std::clamp(nits, 80.0f, 10000.0f);
+    if (!saveDisplayProfile(nits))
+        return false;
+    g_displayPeak = nits;
+    Settings s = currentSettings();
+    if (!s.peakOverride) {
+        s.peakNits = nits;
+        updateSettings(s);
+    }
+    return true;
 }
 
 uint64_t settingsVersion()
@@ -341,36 +403,53 @@ const DisplayInfo& displayInfo()
     return info;
 }
 
+// Older presets were named after the executable; Steam games now use their
+// app id so the Decky plugin can find them.
+static std::string executableKey()
+{
+    std::string name;
+    // Proton: the game is the last *.exe on the command line.
+    std::ifstream     f("/proc/self/cmdline", std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string all = ss.str();
+    for (size_t pos = 0; pos < all.size();) {
+        std::string arg = all.c_str() + pos;
+        pos += arg.size() + 1;
+        std::string lower = arg;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".exe") == 0)
+            name = arg;
+    }
+    if (name.empty()) {
+        char    buf[4096];
+        ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        name      = n > 0 ? std::string(buf, n) : "unknown";
+    }
+    name = name.substr(name.find_last_of("/\\") + 1);
+    if (name.size() > 4 && strcasecmp(name.c_str() + name.size() - 4, ".exe") == 0)
+        name.resize(name.size() - 4);
+    return sanitize(name);
+}
+
 const std::string& gameKey()
 {
     static const std::string key = [] {
-        std::string name;
-        if (const char* preset = std::getenv("HDRKET_PRESET"); preset && *preset) {
-            name = preset;
-        } else {
-            // Proton: the game is the last *.exe on the command line.
-            std::ifstream     f("/proc/self/cmdline", std::ios::binary);
-            std::stringstream ss;
-            ss << f.rdbuf();
-            std::string all = ss.str();
-            for (size_t pos = 0; pos < all.size();) {
-                std::string arg = all.c_str() + pos;
-                pos += arg.size() + 1;
-                std::string lower = arg;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".exe") == 0)
-                    name = arg;
-            }
-            if (name.empty()) {
-                char    buf[4096];
-                ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-                name      = n > 0 ? std::string(buf, n) : "unknown";
-            }
-            name = name.substr(name.find_last_of("/\\") + 1);
-            if (name.size() > 4 && strcasecmp(name.c_str() + name.size() - 4, ".exe") == 0)
-                name.resize(name.size() - 4);
+        if (const char* preset = std::getenv("HDRKET_PRESET"); preset && *preset)
+            return sanitize(preset);
+        uint32_t appid = steamAppId();
+        if (!appid)
+            return executableKey();
+        std::string key    = "steam-" + std::to_string(appid);
+        std::string dir    = configDir() + "/presets/";
+        std::string legacy = dir + executableKey() + ".conf";
+        std::error_code ec;
+        if (!std::filesystem::exists(dir + key + ".conf", ec) && std::filesystem::exists(legacy, ec)) {
+            std::filesystem::rename(legacy, dir + key + ".conf", ec);
+            if (!ec)
+                HK_INFO("preset %s renamed to %s.conf", legacy.c_str(), key.c_str());
         }
-        return sanitize(name);
+        return key;
     }();
     return key;
 }
@@ -425,6 +504,7 @@ void loadInitialSettings()
         }
         updateSettings(s);
         s = currentSettings();
+        std::thread(autosaveLoop).detach();
         HK_INFO("game \"%s\": peak %.0f nits (%s), middle grey %.0f nits (SDR white %.0f), expansion %.2f, saturation %.2f, "
                 "black floor %.3f, EOTF %s, tonemap %s, gamut expansion %.2f",
                 gameKey().c_str(), s.peakNits, s.peakOverride ? "this game's" : "display's", s.greyNits, s.paperWhiteNits(), s.expansion, s.saturation, s.blackFloor,
