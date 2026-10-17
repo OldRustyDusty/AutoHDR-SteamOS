@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>HDR Ket</title>
+<title>AutoHDR</title>
 <style>
   :root {
     --bg: #0e1013; --panel: #171a1f; --line: #262b33; --text: #e8eaed; --muted: #8b939e;
@@ -56,7 +56,7 @@
 <main>
   <header>
     <span class="dot" id="dot" title="Connection to the game"></span>
-    <h1>HDR Ket</h1>
+    <h1>AutoHDR</h1>
     <span class="game" id="game">connecting…</span>
   </header>
 
@@ -209,7 +209,7 @@ function greyHint(grey) {
 function applyState(s) {
   state = s;
   $('game').textContent = s.name || s.game;
-  document.title = `HDR Ket · ${s.name || s.game}`;
+  document.title = `AutoHDR · ${s.name || s.game}`;
   if (s.version !== lastVersion) {
     lastVersion = s.version;
     for (const k of Object.keys(sliders)) {

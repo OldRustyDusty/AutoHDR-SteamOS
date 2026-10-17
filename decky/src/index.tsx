@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 //
-// HDR Ket quick access panel.
+// AutoHDR quick access panel.
 //
 // The panel works on one game at a time: the game picked in its Game list, or
 // else the game that is running, or the game whose library page is open. It
-// turns HDR Ket on for that game
+// turns AutoHDR on for that game
 // through its launch options, and edits the game's profile: live through the
 // running layer, or in the profile file when the game isn't running. Every
 // change is saved automatically.
@@ -236,8 +236,8 @@ function PhoneModal(props: { url: string; live: boolean; closeModal?: () => void
           </p>
           <p style={{ opacity: 0.8 }}>
             {props.live
-              ? "A game with HDR Ket is running, so the page is up now."
-              : "The page opens while a game with HDR Ket on is running."}
+              ? "A game with AutoHDR is running, so the page is up now."
+              : "The page opens while a game with AutoHDR on is running."}
           </p>
         </div>
       </div>
@@ -246,7 +246,7 @@ function PhoneModal(props: { url: string; live: boolean; closeModal?: () => void
 }
 
 // ---------------------------------------------------------------------------
-// Turning HDR Ket on or off for many games at once
+// Turning AutoHDR on or off for many games at once
 
 function GamesModal(props: { games: GameEntry[]; closeModal?: () => void }) {
   const [enabled, setEnabled] = useState<Record<number, boolean>>({});
@@ -271,7 +271,7 @@ function GamesModal(props: { games: GameEntry[]; closeModal?: () => void }) {
   return (
     <ModalRoot onCancel={props.closeModal} closeModal={props.closeModal}>
       <div className={staticClasses.Title} style={{ marginBottom: 4 }}>
-        HDR Ket per game
+        AutoHDR per game
       </div>
       <p style={{ opacity: 0.8, marginTop: 0 }}>
         Switching a game on adds ENABLE_HDRKET=1 to its launch options. A running game picks the change up when it
@@ -305,7 +305,7 @@ function PeakModal(props: { display: Display; firstRun: boolean; closeModal?: ()
   return (
     <ModalRoot onCancel={props.closeModal} closeModal={props.closeModal}>
       <div className={staticClasses.Title} style={{ marginBottom: 8 }}>
-        {firstRun ? "Set up HDR Ket" : "Default peak brightness"}
+        {firstRun ? "Set up AutoHDR" : "Default peak brightness"}
       </div>
       <p>
         {display.name}
@@ -326,7 +326,7 @@ function PeakModal(props: { display: Display; firstRun: boolean; closeModal?: ()
       />
       <p style={{ fontSize: "0.85em", opacity: 0.8 }}>
         Used by every game on this display unless a game sets its own. To measure it, turn on the test pattern while
-        a game runs with HDR Ket: your peak is the last bar that still looks brighter than the one before it.
+        a game runs with AutoHDR: your peak is the last bar that still looks brighter than the one before it.
       </p>
       <Focusable style={{ display: "flex", gap: 8, marginTop: 12 }} flow-children="horizontal">
         {display.edid_peak > 0 && nits !== display.edid_peak && (
@@ -389,7 +389,7 @@ function Content() {
         const o = await getOverview(t?.appid ?? 0);
         if (alive) setOverview(o);
       } catch (e) {
-        console.error("HDR Ket: overview failed", e);
+        console.error("AutoHDR: overview failed", e);
       }
     };
     tick();
@@ -458,7 +458,7 @@ function Content() {
         // The name lets the phone page label non-Steam shortcuts too.
         setOverview(await setSettings(appid, { ...batch, game_name: target?.name ?? "" }));
       } catch (e) {
-        console.error("HDR Ket: update failed", e);
+        console.error("AutoHDR: update failed", e);
       }
     }, 120);
   };
@@ -506,7 +506,7 @@ function Content() {
       {layer.state === "missing" && (
         <PanelSection title="Layer not installed">
           <PanelSectionRow>
-            <Field description="The HDR Ket Vulkan layer could not be installed. Reinstall the plugin, or check the Decky logs." />
+            <Field description="The AutoHDR Vulkan layer could not be installed. Reinstall the plugin, or check the Decky logs." />
           </PanelSectionRow>
         </PanelSection>
       )}
@@ -532,7 +532,7 @@ function Content() {
         <PanelSection title={target.name}>
           <PanelSectionRow>
             <ToggleField
-              label="HDR Ket"
+              label="AutoHDR"
               description={status}
               checked={!!enabled}
               disabled={enabled === null}
@@ -767,7 +767,7 @@ function Content() {
             description={
               overview.phone.live
                 ? "Open this on your phone to tune the running game."
-                : "Opens while a game with HDR Ket on is running."
+                : "Opens while a game with AutoHDR on is running."
             }
           />
         </PanelSectionRow>
@@ -816,7 +816,7 @@ function Content() {
   );
 }
 
-// When a game with HDR Ket starts, say where the phone page is. Checks for
+// When a game with AutoHDR starts, say where the phone page is. Checks for
 // two minutes after a game starts (the page comes up with the game's first
 // HDR frame), then stays quiet until the next game.
 function watchForGames(): () => void {
@@ -836,10 +836,10 @@ function watchForGames(): () => void {
       if (!overview.game?.live || runningAppId() !== now) return;
       done = true;
       if ((await getPluginSettings()).notify_phone) {
-        toaster.toast({ title: "HDR Ket is on", body: `Tune from your phone: ${overview.game.url}` });
+        toaster.toast({ title: "AutoHDR is on", body: `Tune from your phone: ${overview.game.url}` });
       }
     } catch (e) {
-      console.error("HDR Ket: game watch failed", e);
+      console.error("AutoHDR: game watch failed", e);
     }
   }, 3000);
   return () => clearInterval(id);
@@ -848,8 +848,8 @@ function watchForGames(): () => void {
 export default definePlugin(() => {
   const stopWatching = watchForGames();
   return {
-    name: "HDR Ket",
-    titleView: <div className={staticClasses.Title}>HDR Ket</div>,
+    name: "AutoHDR for SteamOS (HDR-Ket)",
+    titleView: <div className={staticClasses.Title}>AutoHDR</div>,
     content: <Content />,
     icon: <MdHdrOn />,
     onDismount: stopWatching,

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# HDR Ket Decky backend.
+# AutoHDR for SteamOS (HDR-Ket): Decky backend.
 #
 # - Installs the bundled Vulkan layer into the user's ~/.local (it only
 #   activates for games launched with ENABLE_HDRKET=1).
@@ -237,7 +237,7 @@ def _http(port: int, path: str, data: dict = None, timeout: float = 0.4):
 
 
 def find_instances() -> list:
-    """(port, state) for every running game with HDR Ket active."""
+    """(port, state) for every running game with AutoHDR active."""
     found = []
     for port in PORTS:
         try:
