@@ -1,7 +1,6 @@
 # AutoHDR for SteamOS (HDR-Ket)
 
-SDR to HDR for every game on SteamOS, Bazzite and other Linux gaming setups,
-tuned per game from Game Mode or your phone.
+Full, easy to use HDR Injection for any SteamOS game. Inspired by AutoHDR, RTX HDR, and SpecialK HDR for windows. Supports tweaking  settings via Steam interface and phone interface in real time via a small included web server. Works with Steam Deck, native SteamOS, Bazzite, and really any Linux distro supporting native Steam Game mode (Big Picture)
 
 AutoHDR is a Vulkan layer. It sits below DXVK, vkd3d-proton and native Vulkan,
 so one code path covers D3D9 through D3D12 and native Linux games. No
@@ -13,7 +12,7 @@ A Decky Loader plugin adds the controls to the quick access menu.
 ## Features
 
 - **Per-game on/off** from the Decky panel. It adds `ENABLE_HDRKET=1` to the
-  game's launch options and leaves the rest of them alone.
+  game's launch options and leaves any other launcher settings you already have as-is.
 - **Per-game profiles**, saved automatically: peak brightness, middle grey
   (overall brightness), highlight expansion, tone mapping, content gamma
   (Linear, sRGB, 2.2, 2.4), saturation, gamut expansion and black floor.
@@ -22,13 +21,13 @@ A Decky Loader plugin adds the controls to the quick access menu.
   get a gentle shadow lift.
 - **Gamut expansion** toward BT.2020, with greys and skin tones protected.
 - **Per-display peak brightness**, read from the display's EDID when it
-  reports it, with optional per-game overrides.
+  reports it, with optional per-game overrides. Can be set manually to override this value.
 - **Tune from your phone**: every running game serves a tuning page on your
-  network (port 7331). The plugin shows its address and a QR code.
+  network (port 7331). The plugin shows its address and a QR code. This is the easiest and fastest way to see changes in-game in real time.
 - **Live measurements**: peak, average and a brightness histogram of what is
   actually on screen, plus a brightness test pattern for finding your
-  display's real peak.
-- **Split-screen compare** against the original SDR image.
+  display's real peak. This is great for tuning to make sure you're taking full advantage of your display's peak nits.
+- **Split-screen compare** against the original SDR image, so you can make sure it's working and compare your settings vs original.
 
 ## Screenshots
 
