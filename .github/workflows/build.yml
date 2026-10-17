@@ -51,13 +51,16 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: out/autohdr-steamos-decky.zip
+          files: |
+            out/autohdr-steamos-decky.zip
+            scripts/install.sh
+            scripts/AutoHDR-installer.desktop
           generate_release_notes: true
           body: |
-            Install in Game Mode: Decky settings > General > **Developer mode**, then Developer > **Install Plugin from URL** with
+            **Install (needs [Decky Loader](https://decky.xyz)):** in Desktop Mode, download **AutoHDR-installer.desktop** below and double-click it. Or in a terminal:
 
             ```
-            https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/autohdr-steamos-decky.zip
+            curl -fsSL https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/install.sh | bash
             ```
 
             See the [README](https://github.com/OldRustyDusty/AutoHDR-SteamOS#readme) for requirements and usage.

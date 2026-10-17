@@ -73,23 +73,38 @@ settings that you use.
 
 ## Install
 
-AutoHDR is not on the Decky store (see [why](#why-not-on-the-decky-store)).
-Install it from this repository's releases with Decky's developer options:
+You need [Decky Loader](https://decky.xyz) first. Then pick one:
 
-1. In Game Mode, open Decky's settings (the gear in the Decky menu) and turn
-   on **Developer mode**.
-2. Open the new **Developer** section and use **Install Plugin from URL** with:
+**Desktop Mode (easiest):** download
+[AutoHDR-installer.desktop](https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/AutoHDR-installer.desktop),
+then double-click it (on KDE, choose *Execute* or *Continue* if asked). It asks
+for your password, installs the latest release into Decky and restarts Decky.
+Run it again any time to update.
 
-   ```
-   https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/autohdr-steamos-decky.zip
-   ```
+**Terminal:** the same installer in one line:
 
-   Or download that zip and use **Install Plugin from ZIP File**.
-3. Open the **AutoHDR** panel. The first time, it asks you to confirm your
-   display's peak brightness.
+```bash
+curl -fsSL https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/install.sh | bash
+```
 
-The plugin installs the Vulkan layer into `~/.local` for your user. Nothing
-changes for a game until you turn AutoHDR on for it.
+**Game Mode only:** open Decky's settings, turn on **Developer mode** (under
+General), then in the **Developer** section use **Install Plugin from URL**
+with:
+
+```
+https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/autohdr-steamos-decky.zip
+```
+
+Nothing is compiled: every option installs the ready-made release. On a Steam
+Deck that has never had a password, set one first (run `passwd` in Konsole);
+installing into Decky needs it. The plugin then puts the Vulkan layer into
+`~/.local` for your user. Nothing changes for a game until you turn AutoHDR on
+for it. AutoHDR is not on the Decky store (see
+[why](#why-not-on-the-decky-store)).
+
+To uninstall, run the installer with `--uninstall`:
+`curl -fsSL https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/install.sh | bash -s -- --uninstall`.
+Your per-game settings stay in `~/.config/hdrket`.
 
 ## Using it
 

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install AutoHDR for SteamOS
+Comment=Installs or updates the AutoHDR Decky plugin (needs Decky Loader)
+Icon=preferences-desktop-display
+Terminal=false
+Exec=bash -c "curl -fsSL https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/install.sh | bash"
