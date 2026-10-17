@@ -9,6 +9,8 @@ One compute pass per frame turns the game's SDR image into HDR10.
 
 A Decky Loader plugin adds the controls to the quick access menu.
 
+A special thanks and shout out to Pumbo's HDR reshade mod, as this Decky Loader plugin wouldn't have been possible without his hard work. Full credits are at the end of the readme.md file.
+
 ## Features
 
 - **Per-game on/off** from the Decky panel. It adds `ENABLE_HDRKET=1` to the
