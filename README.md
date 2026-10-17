@@ -1,6 +1,6 @@
 # AutoHDR for SteamOS (HDR-Ket)
 
-Full, easy to use HDR mode for any SteamOS game. Inspired by AutoHDR, RTX HDR, and SpecialK HDR injection tools for windows. Supports tweaking  settings via Steam interface and phone interface in real time via a small included web server. Works with Steam Deck, native SteamOS, Bazzite, and really any Linux distro supporting native Steam Game mode (Big Picture)
+Full, easy to use HDR mode for any SteamOS game. Inspired by AutoHDR, RTX HDR, SpecialK HDR, and the hard work done by EndlesslyFlowering and Plumbo's HDR reshade mods. Supports tweaking  settings via Steam interface and phone interface in real time via a small included web server. Works with Steam Deck, native SteamOS, Bazzite, and really any Linux distro supporting native Steam Game mode (Big Picture)
 
 AutoHDR is a Vulkan layer. It sits below DXVK, vkd3d-proton and native Vulkan,
 so it's a single codebase that covers D3D9 through D3D12 and native Linux games. 
