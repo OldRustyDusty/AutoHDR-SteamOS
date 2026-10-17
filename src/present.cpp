@@ -391,7 +391,7 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
             params.shadowGamma      = g_accumulator.shadowGamma;
             g_accumulator.stats.tonemapSourceNits =
                 (settings.tonemap == Tonemap::Map || settings.tonemap == Tonemap::Adaptive) &&
-                        params.sourcePeakNits > settings.peakNits
+                        params.sourcePeakNits > settings.peakNits * 1.02f // the follower settles a hair above
                     ? params.sourcePeakNits
                     : 0.0f;
             std::vector<VkCommandBuffer> cmds;

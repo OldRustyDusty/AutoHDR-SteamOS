@@ -30,6 +30,13 @@ A Decky Loader plugin adds the controls to the quick access menu.
   display's real peak.
 - **Split-screen compare** against the original SDR image.
 
+## Screenshots
+
+The phone tuning page (left: brightness and color; right: live measurements,
+compare and reset):
+
+![Phone tuning page](docs/images/phone-tuning.png)
+
 ## Requirements
 
 - An HDR display, with HDR turned on in Steam (Settings > Display) in Game
