@@ -848,7 +848,7 @@ function watchForGames(): () => void {
 export default definePlugin(() => {
   const stopWatching = watchForGames();
   return {
-    name: "AutoHDR for SteamOS (HDR-Ket)",
+    name: "AutoHDR",
     titleView: <div className={staticClasses.Title}>AutoHDR</div>,
     content: <Content />,
     icon: <MdHdrOn />,
