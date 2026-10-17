@@ -3,9 +3,9 @@
 Full, easy to use HDR mode for any SteamOS game. Inspired by AutoHDR, RTX HDR, and SpecialK HDR injection tools for windows. Supports tweaking  settings via Steam interface and phone interface in real time via a small included web server. Works with Steam Deck, native SteamOS, Bazzite, and really any Linux distro supporting native Steam Game mode (Big Picture)
 
 AutoHDR is a Vulkan layer. It sits below DXVK, vkd3d-proton and native Vulkan,
-so one code path covers D3D9 through D3D12 and native Linux games. No
-injection into the game, no hooks, no extra frames queued: one compute pass per
-frame turns the game's SDR image into HDR10.
+so it's a single codebase that covers D3D9 through D3D12 and native Linux games. 
+Unlike SK or Reshade, there's no injection into the game, no hooks, no extra frames queued. 
+One compute pass per frame turns the game's SDR image into HDR10.
 
 A Decky Loader plugin adds the controls to the quick access menu.
 
@@ -31,9 +31,10 @@ A Decky Loader plugin adds the controls to the quick access menu.
 
 ## Screenshots
 
-The Decky panel in Game Mode, live in a game: the status line shows the peak on
-screen, what adaptive tone mapping is doing and how much of the image uses
-colors beyond sRGB. Every change applies on the next frame.
+The Decky panel is shown live in Game Mode below. The status line gives you a quick
+validation that it's working and shows the peak NITS currently on
+screen, what adaptive tone mapping is doing, and how much of the image uses
+colors beyond sRGB. All changes made apply in real time.
 
 ![AutoHDR panel open over a running game](docs/images/panel-live.jpg)
 
@@ -42,25 +43,29 @@ colors beyond sRGB. Every change applies on the next frame.
   <img src="docs/images/panel-phone.jpg" width="49%" alt="Compare, test pattern, phone address and display peak">
 </p>
 
-The panel without a game running, and the per-game on/off list:
+Outside of the game running, you can manually enable/disable the feature per-game, or edit individual game profiles.
+Lastly, default peak brightness can be set here. Original default value is read from your display's EDID so should give you a good starting point.
 
 <p>
   <img src="docs/images/panel-home.jpg" width="32%" alt="AutoHDR panel: game picker, phone address, display peak">
   <img src="docs/images/panel-games.jpg" width="66%" alt="Turn AutoHDR on or off per game">
 </p>
 
-The phone tuning page (left: brightness and color; right: live measurements,
-compare and reset):
+Next up, and this is the coolest feature: Being able to tune HDR settings in real time from your phone's web browser.
+This feature is available as long as a game is running, and there's a handy QR code that can be scanned from the app
+so you don't have to type in your Steam Machine's IP address and the port manually into the browser.
 
 ![Phone tuning page](docs/images/phone-tuning.png)
 
-Screenshots can't show HDR: Steam saves them as SDR images, so the picture in
-them is a tone-mapped stand-in for what an HDR display shows.
+Note these screenshots I'm showing aren't actually HDR screenshots due to gamescope limitations, they are regular SDR so 
+take the colors and brightness with a grain of salt. The actual effect in game can be anywhere from subtle to quite
+noticeable, this really comes down to your display, whether it's WOLED or QD-OLED, and it's peak NITs in addition to the 
+settings that you use.
 
 ## Requirements
 
 - An HDR display, with HDR turned on in Steam (Settings > Display) in Game
-  Mode. On a Steam Deck that means the OLED model, or an external HDR display.
+  Mode. On a Steam Deck that means the OLED model, or an external HDR display for the LCD Deck.
 - A Mesa Vulkan driver (AMD or Intel). NVIDIA is untested.
 - [Decky Loader](https://decky.xyz) for the plugin.
 
@@ -169,11 +174,13 @@ expands highlights, maps colors and tone maps to the display, and writes the
 real swapchain image. The same pass measures the frame for the live readouts
 and for adaptive tone mapping. More background is in `docs/design-notes.md`.
 
-## Why not on the Decky store
+## Why it's not on the Decky store
 
 The Decky plugin store asks submitters to confirm that generative AI was not
 used to write most of the code. This project was developed with AI assistance,
-so it is distributed here instead.
+so it is distributed here instead. It's not my fault the Decky Store maintainers are stuck in the 19th century.
+Most of the apps there are out of date, fail to launch with SteamOS, and have bugs anyways. If GenAI was used,
+daily updates and fixes could be easily maintained. Instead they want everyone to code like it's 1999.
 
 ## Credits
 
