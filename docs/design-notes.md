@@ -1,3 +1,9 @@
+> **Design notes.** This is the original planning document the project
+> started from (working name "vkhdr", now AutoHDR for SteamOS / HDR-Ket). It is
+> kept for the reasoning behind the architecture; details such as the sprint
+> plan and the scRGB output default have since changed. See the README for
+> how things work now.
+
 # vkhdr — Project Handoff
 
 **A native Vulkan implicit layer for SDR→HDR injection on Linux.**

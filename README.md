@@ -1,137 +1,190 @@
-# HDR Ket
+# AutoHDR for SteamOS (HDR-Ket)
 
-SDR→HDR inverse tone mapping for Linux games, as a Vulkan implicit layer.
-Works below DXVK / vkd3d-proton / native Vulkan, so one code path covers
-D3D9 through D3D12 and native titles. No injection, no hooks into the game,
-no extra frame queuing.
+SDR to HDR for every game on SteamOS, Bazzite and other Linux gaming setups,
+tuned per game from Game Mode or your phone.
 
-Status: layer, HDR10/scRGB swapchain substitution, one fused compute pass,
-live tuning page with a brightness readout, and per-game presets.
+AutoHDR is a Vulkan layer. It sits below DXVK, vkd3d-proton and native Vulkan,
+so one code path covers D3D9 through D3D12 and native Linux games. No
+injection into the game, no hooks, no extra frames queued: one compute pass per
+frame turns the game's SDR image into HDR10.
+
+A Decky Loader plugin adds the controls to the quick access menu.
+
+## Features
+
+- **Per-game on/off** from the Decky panel. It adds `ENABLE_HDRKET=1` to the
+  game's launch options and leaves the rest of them alone.
+- **Per-game profiles**, saved automatically: peak brightness, middle grey
+  (overall brightness), highlight expansion, tone mapping, content gamma
+  (Linear, sRGB, 2.2, 2.4), saturation, gamut expansion and black floor.
+- **Tone mapping**: Off, Clip, Map (ITU-R BT.2390 roll-off) or **Adaptive**,
+  which follows each scene: dim scenes keep their highlight pop, dark scenes
+  get a gentle shadow lift.
+- **Gamut expansion** toward BT.2020, with greys and skin tones protected.
+- **Per-display peak brightness**, read from the display's EDID when it
+  reports it, with optional per-game overrides.
+- **Tune from your phone**: every running game serves a tuning page on your
+  network (port 7331). The plugin shows its address and a QR code.
+- **Live measurements**: peak, average and a brightness histogram of what is
+  actually on screen, plus a brightness test pattern for finding your
+  display's real peak.
+- **Split-screen compare** against the original SDR image.
+
+## Requirements
+
+- An HDR display, with HDR turned on in Steam (Settings > Display) in Game
+  Mode. On a Steam Deck that means the OLED model, or an external HDR display.
+- A Mesa Vulkan driver (AMD or Intel). NVIDIA is untested.
+- [Decky Loader](https://decky.xyz) for the plugin.
+
+## Install
+
+AutoHDR is not on the Decky store (see [why](#why-not-on-the-decky-store)).
+Install it from this repository's releases with Decky's developer options:
+
+1. In Game Mode, open Decky's settings (the gear in the Decky menu) and turn
+   on **Developer mode**.
+2. Open the new **Developer** section and use **Install Plugin from URL** with:
+
+   ```
+   https://github.com/OldRustyDusty/AutoHDR-SteamOS/releases/latest/download/autohdr-steamos-decky.zip
+   ```
+
+   Or download that zip and use **Install Plugin from ZIP File**.
+3. Open the **AutoHDR** panel. The first time, it asks you to confirm your
+   display's peak brightness.
+
+The plugin installs the Vulkan layer into `~/.local` for your user. Nothing
+changes for a game until you turn AutoHDR on for it.
+
+## Using it
+
+1. In the AutoHDR panel, pick a game under **Profile for** (or start it, or
+   open its library page) and switch **AutoHDR** on. **Turn on or off for
+   games…** does the same for several games at once.
+2. Start the game. Every setting in the panel applies on the next frame while
+   it runs, and saves automatically.
+3. Use **Compare** to check against the original SDR image, and the **test
+   pattern** to find your display's real peak: it is the last bar that still
+   looks brighter than the one before it.
+4. To tune from your phone, open the address in the panel's **Phone** section,
+   or scan its QR code. The page is up while a game with AutoHDR runs.
+
+**Reset to defaults** at the bottom of a game's settings starts it over.
+
+### Settings
+
+| Setting | What it does |
+|---|---|
+| Peak brightness | Your display's real maximum. Saved per display; a game can use its own. |
+| Middle grey | Overall brightness: where SDR 18% grey lands. SDR white sits at grey / 0.18. |
+| Highlight expansion | How far bright highlights reach toward peak. Above 100% they aim past peak and the tone mapper rolls them back. |
+| Tone mapping | What happens above peak: Off, Clip, Map, or Adaptive (scene-following). |
+| Adaptive strength | How strongly Adaptive follows the scene. |
+| Content gamma | How the game was mastered. Gamma 2.2 suits most PC games. |
+| Saturation | Color intensity. |
+| Gamut expansion | Pushes saturated colors toward HDR's wider gamut. 20–40% is a good start. |
+| Black floor | Crushes raised blacks. |
+
+### Files
+
+- `~/.config/hdrket/presets/steam-<appid>.conf`: each game's settings.
+- `~/.config/hdrket/displays/<display>.conf`: each display's peak.
+- `~/.local/state/hdrket/hdrket-<pid>.log`: logs from the layer.
+
+## Troubleshooting
+
+- **Nothing changes in a game**: check the log in `~/.local/state/hdrket/`.
+  `passthrough: no usable HDR surface format` means the display path offers no
+  HDR: turn HDR on in Steam's display settings.
+- **Desktop mode**: games under XWayland get no HDR formats on KDE Plasma. Run
+  them natively on Wayland (`PROTON_ENABLE_WAYLAND=1` for Proton, or Godot's
+  `--display-driver wayland`) or inside `gamescope --hdr-enabled`.
+- **Gamut expansion makes no visible difference**: some AV receivers report
+  plain sRGB color in their EDID, and the display chain then clamps wide
+  colors. The panel's *colors beyond sRGB* readout shows whether AutoHDR is
+  producing them.
+- **The phone page doesn't load**: the phone has to be on the same network,
+  and the page only exists while a game with AutoHDR is running.
+
+## Without Decky
+
+The layer works on its own. Build and install it into `~/.local`:
+
+```bash
+meson setup build --prefix="$HOME/.local" --libdir=lib64
+ninja -C build && meson install -C build
+```
+
+Then add `ENABLE_HDRKET=1 %command%` to a game's launch options. Settings can
+also be set with `HDRKET_<SETTING>` environment variables, for example
+`HDRKET_PEAK_NITS=800` or `HDRKET_TONEMAP=adaptive`.
+
+## Building
+
+Needs meson, ninja, a C++20 compiler, glslang, the Vulkan headers, Python 3,
+Node.js and pnpm.
+
+```bash
+scripts/package-decky.sh      # layer + plugin -> out/autohdr-steamos-decky.zip
+```
+
+On Bazzite or SteamOS the scripts run the build inside a distrobox
+(`hdrket-build`, or `hdrket-compat` with Ubuntu 22.04 for release builds that
+run on older systems). Releases are built by GitHub Actions on Ubuntu 22.04.
 
 ## How it works
 
-When a game creates an SDR swapchain, HDR Ket creates the real swapchain as
-HDR (scRGB fp16 by default, or HDR10 PQ) and hands the game "shadow" images in
-the format it asked for. At present time one compute dispatch reads the
-game's frame, expands it to HDR, and writes the real swapchain image.
+When a game creates an SDR swapchain, the layer creates the real one as HDR10
+(PQ, BT.2020) and gives the game "shadow" images in the format it asked for.
+At present time a single compute shader reads the game's frame, decodes it,
+expands highlights, maps colors and tone maps to the display, and writes the
+real swapchain image. The same pass measures the frame for the live readouts
+and for adaptive tone mapping. More background is in `docs/design-notes.md`.
 
-## Decky plugin (Game Mode)
+## Why not on the Decky store
 
-The easiest way to use HDR Ket on Bazzite, SteamOS or a Steam Deck. The plugin
-installs the Vulkan layer into `~/.local` and adds an **HDR Ket** panel to the
-quick access menu:
+The Decky plugin store asks submitters to confirm that generative AI was not
+used to write most of the code. This project was developed with AI assistance,
+so it is distributed here instead.
 
-- **Per game**: open a game's library page (or start it) and switch HDR Ket on.
-  This adds `ENABLE_HDRKET=1` to the game's launch options and leaves the rest
-  of them alone. All the picture settings for that game are in the same panel,
-  live while it runs, and saved automatically. *Reset to defaults* is at the
-  bottom.
-- **Per display**: the first time the panel opens, it reads the display's peak
-  brightness from its EDID (if reported) and asks you to confirm or set it.
-  *Change default peak* in the panel changes it later. A game can still use
-  its own peak.
-- The phone page (`http://<this machine>:7331`) keeps working alongside it.
+## Credits
 
-Build the plugin zip with `scripts/package-decky.sh` (output in `out/`).
-Install it with Decky's developer "Install plugin from ZIP", or copy
-`out/hdrket` into `~/homebrew/plugins/` (root-owned) and restart
-`plugin_loader`.
+AutoHDR builds on the work of these projects and people:
 
-## Build and install (Bazzite / Fedora)
+- **[PumboAutoHDR](https://github.com/Filoppi/PumboAutoHDR)** by Filippo
+  Tarpini (MIT): the luminance-based, additive highlight expansion approach.
+- **[vkBasalt](https://github.com/DadSchoorse/vkBasalt)** by Georg Lehmann and
+  contributors (Zlib): the structure of a Vulkan post-processing layer.
+- **[Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)**,
+  **[decky-plugin-template](https://github.com/SteamDeckHomebrew/decky-plugin-template)**
+  and **[@decky/api, @decky/ui](https://github.com/SteamDeckHomebrew/decky-frontend-lib)**
+  by Steam Deck Homebrew (BSD-3-Clause, LGPL-2.1): the plugin platform, build
+  setup and APIs.
+- **[qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator)** by
+  Kazuhiko Arase (MIT): the phone QR code.
+- **[react-icons](https://github.com/react-icons/react-icons)** (MIT) and
+  **[Material Design Icons](https://github.com/google/material-design-icons)**
+  by Google (Apache-2.0): the plugin icon.
+- **ITU-R BT.2390, BT.2020/BT.2087, SMPTE ST 2084 and CTA-861**: the
+  published standards behind the tone mapping, color conversion, PQ encoding
+  and EDID parsing.
 
-```bash
-# one-time: a build box with the toolchain
-distrobox create --name hdrket-build --image registry.fedoraproject.org/fedora-toolbox:44
-distrobox enter hdrket-build -- sudo dnf install -y meson ninja-build gcc-c++ glslang \
-    vulkan-headers libstdc++-static
+Studied for reference, no code used:
+[gamescope](https://github.com/ValveSoftware/gamescope) (Valve),
+[Mesa](https://gitlab.freedesktop.org/mesa/mesa)'s Vulkan WSI,
+[VK_hdr_layer](https://github.com/Zamundaaa/VK_hdr_layer) (Victoria Brekenfeld),
+[low_latency_layer](https://github.com/Korthos-Software/low_latency_layer) (Korthos Software),
+Lilium's [DXVK HDR-mod](https://github.com/EndlesslyFlowering/dxvk) and
+[ReShade HDR shaders](https://github.com/EndlesslyFlowering/ReShade_HDR_shaders) (EndlesslyFlowering),
+and [Special K](https://github.com/SpecialKO/SpecialK) (Kaldaien), whose HDR
+retrofit set the bar for how quick this should be to tune.
 
-./scripts/dev-install.sh   # builds, installs into ~/.local
-```
+Developed with AI assistance from Claude Code.
 
-## Use
+Full license texts for third-party code are in `LICENSES/`, with a summary in
+`THIRD_PARTY_NOTICES.md`.
 
-Steam launch options:
+## License
 
-```
-ENABLE_HDRKET=1 %command%
-```
-
-The display path must offer HDR formats to the game:
-
-- **Game Mode / gamescope** (Steam Deck, Bazzite Game Mode): turn HDR on in
-  Steam's display settings. Gamescope's WSI layer exposes HDR to the game.
-- **KDE Plasma desktop**: enable HDR in Display Configuration. XWayland windows
-  get no HDR formats, so the game must run natively on Wayland:
-  Proton games: `PROTON_ENABLE_WAYLAND=1`; Godot games: `--display-driver wayland`;
-  or nest the game in `gamescope --hdr-enabled`.
-
-## Tuning
-
-When a game starts with HDR Ket active, the log prints the tuning page address:
-
-```
-[hdrket info] tuning UI: http://192.168.0.130:7331
-```
-
-Open it on a phone or laptop. Every change applies on the next frame while the
-game stays full screen. Changes save automatically to
-`~/.config/hdrket/presets/steam-<appid>.conf` and load next time the game starts.
-
-| Control | What it does |
-|---|---|
-| Peak brightness | Your display's real maximum. Find it with the test pattern: the bar where brightness stops increasing. Saved per display; tick *Peak for this game only* to give one game its own value on this display. |
-| Middle grey | Overall brightness: where SDR 18% grey lands. SDR white sits at grey / 0.18. |
-| Highlight expansion | How far bright highlights reach toward peak. 0 = plain SDR in an HDR container; above 100% they aim past peak and the tone mapper rolls them back. |
-| Tone mapping | What happens above peak. **Off**: sent as is. **Clip**: cut at peak, hue kept. **Map**: BT.2390 roll-off from a fixed range. **Adaptive**: the same roll-off following each scene's brightest point, plus scene adaptation: the game's own brightest content (99.5th percentile) counts as white, so dim scenes keep their highlight pop, and dark scenes get a gentle shadow lift below middle grey. Reacts fast when a scene brightens, relaxes slowly when it darkens. |
-| Adaptive strength | How far Adaptive follows the scene (0 = same as Map). |
-| Content gamma | How the game was mastered: Linear, sRGB, 2.2 (most PC games), 2.4. |
-| Saturation | Color intensity around each pixel's own brightness. |
-| Gamut expansion | Pushes saturated colors toward BT.2020. Greys and low-chroma tones (skin) are protected; brightness is kept. |
-| Black floor | Crush raised blacks. |
-| Compare | HDR, Split (left half SDR), or SDR. |
-| Measured on screen | Live peak, 99th percentile and average brightness, what the tone mapper is doing, and a histogram. |
-
-### Presets and displays
-
-- `~/.config/hdrket/displays/<display>.conf` holds each display's peak. The
-  display is identified from its EDID (name plus a checksum), so two TVs behind
-  the same AV receiver still get separate profiles. If the TV reports its peak
-  in the EDID, that is the starting value. `HDRKET_DISPLAY=<name>` forces a
-  profile.
-- `~/.config/hdrket/presets/steam-<appid>.conf` (or `<executable>.conf` outside
-  Steam) holds the game's picture settings and
-  any per-display peak overrides (`peak_nits@<display> = 830`). A plain
-  `peak_nits` in a game preset applies on every display.
-
-The page is served on all interfaces so a phone can reach it.
-`HDRKET_BIND=127.0.0.1` keeps it local, `HDRKET_PORT` changes the port, and
-`HDRKET_UI=0` turns it off.
-
-## Logs
-
-Messages go to stderr and to `~/.local/state/hdrket/hdrket-<pid>.log` (Game Mode
-hides stderr). `HDRKET_LOG=debug` shows what was detected. If the log says
-`passthrough: no usable HDR surface format`, the point above applies.
-
-### Environment overrides
-
-Any preset key can be set as `HDRKET_<KEY>`, applied on top of the saved preset:
-`HDRKET_PEAK_NITS`, `HDRKET_MIDDLE_GREY_NITS`, `HDRKET_PAPER_WHITE_NITS`,
-`HDRKET_EXPANSION`, `HDRKET_SATURATION`, `HDRKET_BLACK_FLOOR`, `HDRKET_EOTF`
-(`linear`, `srgb`, `gamma22`, `gamma24`), `HDRKET_TONEMAP` (`off`, `clip`,
-`map`, `adaptive`), `HDRKET_GAMUT_EXPANSION`, `HDRKET_ADAPT_RELEASE` (seconds),
-`HDRKET_ADAPT_STRENGTH`,
-`HDRKET_SPLIT`, `HDRKET_PATTERN`,
-`HDRKET_BYPASS`. Also `HDRKET_PRESET=<name>` picks a preset file, and
-`HDRKET_OUTPUT=hdr10|scrgb|off`.
-
-HDR10 is the default output: PQ values are absolute nits on every compositor.
-scRGB is relative on Wayland (KWin maps 1.0 to the desktop SDR brightness), so
-it is opt-in for now.
-
-## Licensing
-
-MIT. Do not copy code from Special K (GPLv3) or Lilium's ReShade HDR shaders
-(GPLv3). The highlight expansion follows the approach of PumboAutoHDR (MIT);
-layer plumbing follows vkBasalt (zlib). Tone mapping implements the ITU-R BT.2390
-EETF from the published recommendation.
+MIT. See `LICENSE`.
