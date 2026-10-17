@@ -31,10 +31,31 @@ A Decky Loader plugin adds the controls to the quick access menu.
 
 ## Screenshots
 
+The Decky panel in Game Mode, live in a game: the status line shows the peak on
+screen, what adaptive tone mapping is doing and how much of the image uses
+colors beyond sRGB. Every change applies on the next frame.
+
+![AutoHDR panel open over a running game](docs/images/panel-live.jpg)
+
+<p>
+  <img src="docs/images/panel-settings.jpg" width="49%" alt="Tone mapping, color and compare settings">
+  <img src="docs/images/panel-phone.jpg" width="49%" alt="Compare, test pattern, phone address and display peak">
+</p>
+
+The panel without a game running, and the per-game on/off list:
+
+<p>
+  <img src="docs/images/panel-home.jpg" width="32%" alt="AutoHDR panel: game picker, phone address, display peak">
+  <img src="docs/images/panel-games.jpg" width="66%" alt="Turn AutoHDR on or off per game">
+</p>
+
 The phone tuning page (left: brightness and color; right: live measurements,
 compare and reset):
 
 ![Phone tuning page](docs/images/phone-tuning.png)
+
+Screenshots can't show HDR: Steam saves them as SDR images, so the picture in
+them is a tone-mapped stand-in for what an HDR display shows.
 
 ## Requirements
 
